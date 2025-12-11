@@ -1,0 +1,121 @@
+===============================================
+INVENTORY MANAGEMENT SYSTEM - SETUP GUIDE
+===============================================
+
+PREREQUISITES
+-------------
+- Node.js 18+ (https://nodejs.org)
+- npm or yarn or bun
+- Git
+
+STEP 1: Clone the Repository
+-----------------------------
+git clone <your-repo-url>
+cd <project-folder>
+
+STEP 2: Install Dependencies
+-----------------------------
+npm install
+# or
+yarn install
+# or
+bun install
+
+STEP 3: Environment Variables
+------------------------------
+Create a .env file in the root directory with:
+
+VITE_SUPABASE_URL=<your-supabase-url>
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-supabase-anon-key>
+VITE_SUPABASE_PROJECT_ID=<your-project-id>
+
+Note: If you cloned from Lovable, these may already be set.
+To get these values:
+1. Go to your Supabase project dashboard
+2. Navigate to Settings > API
+3. Copy the Project URL and anon/public key
+
+STEP 4: Database Setup
+-----------------------
+The database schema is already set up if using Lovable Cloud.
+
+If setting up fresh Supabase:
+1. Create a new Supabase project
+2. Run the migration SQL from supabase/migrations/ folder
+3. This creates all tables, RLS policies, and triggers
+
+STEP 5: Run the Development Server
+-----------------------------------
+npm run dev
+# or
+yarn dev
+# or
+bun dev
+
+The app will be available at http://localhost:5173
+
+STEP 6: Create Your First Admin User
+--------------------------------------
+1. Open the app and click "Sign Up"
+2. Enter your email, password, and name
+3. The system creates a default 'warehouse_staff' role
+4. To become admin, you need to manually update the user_roles table:
+
+   In Supabase SQL Editor, run:
+   UPDATE user_roles 
+   SET role = 'admin' 
+   WHERE user_id = '<your-user-id>';
+
+   Or use the Lovable Cloud interface to update the role.
+
+FEATURES
+--------
+1. NLP Console (Home): Natural language inventory commands
+   - "Show all products"
+   - "Take 5 units of [product] from [warehouse]"
+   - "Order 100 units of [product] from [supplier]"
+   - "Show orders"
+   - "Show transaction history"
+
+2. Data View (/data): Visual overview of inventory
+   - Products by warehouse
+   - All products list
+   - Orders with filtering
+   - Transaction history
+
+3. Admin Panel (/admin): System management (admin only)
+   - View/manage employees
+   - Assign roles
+   - View command logs
+   - Add warehouses, suppliers, departments, categories
+
+USER ROLES
+----------
+- warehouse_staff: Take/return items, view stock
+- manager: Approve adjustments, update inventory
+- procurement_officer: Create orders, upload bills
+- admin: Full system access
+
+TROUBLESHOOTING
+---------------
+1. "Access denied" errors:
+   - Check your user role in user_roles table
+   - Ensure RLS policies are properly set
+
+2. Data not loading:
+   - Check browser console for errors
+   - Verify Supabase connection
+   - Ensure user is authenticated
+
+3. NLP commands not working:
+   - Ensure edge function is deployed
+   - Check edge function logs in Lovable Cloud
+
+SUPPORT
+-------
+For issues, check:
+- Browser console (F12 > Console)
+- Network tab for API errors
+- Supabase logs in dashboard
+
+===============================================

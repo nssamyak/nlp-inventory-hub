@@ -4,6 +4,8 @@ import { Package, LogOut, User, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NLPConsole } from '@/components/NLPConsole';
 import { useAuth } from '@/hooks/useAuth';
+import { NavLink } from '@/components/NavLink';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Index() {
   const { user, employee, userRole, loading, signOut } = useAuth();
@@ -38,14 +40,21 @@ export default function Index() {
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Package className="w-5 h-5 text-primary" />
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Package className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h1 className="font-semibold text-lg">Inventory Manager</h1>
+                <p className="text-xs text-muted-foreground">NLP Command Console</p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-semibold text-lg">Inventory Manager</h1>
-              <p className="text-xs text-muted-foreground">NLP Command Console</p>
-            </div>
+            <nav className="hidden md:flex items-center gap-1">
+              <NavLink to="/">Console</NavLink>
+              <NavLink to="/data">Data View</NavLink>
+              {userRole === 'admin' && <NavLink to="/admin">Admin</NavLink>}
+            </nav>
           </div>
 
           <div className="flex items-center gap-4">
@@ -56,6 +65,7 @@ export default function Index() {
                 {userRole?.replace('_', ' ') || 'User'}
               </span>
             </div>
+            <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
               <LogOut className="w-4 h-4 mr-2" />
               Sign Out
