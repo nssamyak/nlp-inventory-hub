@@ -75,21 +75,17 @@ export default function Admin() {
     if (!loading && !user) {
       navigate('/auth');
     }
-    if (!loading && userRole !== 'admin') {
-      toast.error('Access denied. Admin role required.');
-      navigate('/');
-    }
-  }, [user, userRole, loading, navigate]);
+  }, [user, loading, navigate]);
 
   useEffect(() => {
-    if (user && userRole === 'admin') {
+    if (user) {
       fetchEmployees();
       fetchUserRoles();
       fetchCommandHistory();
       fetchDepartments();
       fetchRoles();
     }
-  }, [user, userRole]);
+  }, [user]);
 
   const fetchEmployees = async () => {
     const { data } = await supabase
@@ -205,7 +201,7 @@ export default function Admin() {
     );
   }
 
-  if (userRole !== 'admin') return null;
+  
 
   return (
     <div className="min-h-screen bg-background">
