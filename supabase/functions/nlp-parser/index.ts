@@ -20,53 +20,69 @@ Available actions and their required parameters:
    - quantity: number of items
    - warehouse: warehouse name or ID
 
-3. TRANSFER_STOCK - Move items between warehouses
+3. TRANSFER_STOCK - Move items between warehouses (use when source is explicitly specified)
    - product: product name or ID
    - quantity: number of items
    - from_warehouse: source warehouse name or ID
    - to_warehouse: destination warehouse name or ID
 
-4. CREATE_ORDER - Create a purchase order
+4. MOVE_PRODUCT - Move product to a warehouse (use when source is NOT specified - system will find where product exists)
+   - product: product name or ID
+   - quantity: number of items
+   - to_warehouse: destination warehouse name or ID
+   - from_warehouse: optional source warehouse (if not specified, system will auto-detect)
+
+5. CREATE_ORDER - Create a purchase order
    - product: product name or ID
    - quantity: number of items
    - supplier: supplier name or ID
 
-5. UPDATE_ORDER_STATUS - Update order status
+6. UPDATE_ORDER_STATUS - Update order status
    - order_id: order number
    - status: one of [pending, approved, ordered, received, cancelled]
 
-6. VIEW_PRODUCTS - Show products list
+7. VIEW_PRODUCTS - Show all products list (general view without warehouse filter)
    - filter: optional filter criteria
 
-7. VIEW_WAREHOUSES - Show warehouses list
+8. VIEW_PRODUCTS_IN_WAREHOUSE - Show products with stock levels in a specific warehouse (use for "show products in warehouse X")
+   - warehouse: warehouse name or ID (required)
 
-8. VIEW_ORDERS - Show orders list
-   - status: optional status filter
+9. VIEW_WAREHOUSES - Show warehouses list
 
-9. VIEW_TRANSACTIONS - Show transaction history
-   - filter: optional filter criteria
+10. VIEW_ORDERS - Show orders list
+    - status: optional status filter
 
-10. VIEW_STOCK - Show stock levels
+11. VIEW_TRANSACTIONS - Show transaction history
+    - filter: optional filter criteria
+
+12. VIEW_STOCK - Show stock levels across all warehouses
     - warehouse: optional warehouse filter
     - product: optional product filter
 
-11. VIEW_SUPPLIERS - Show suppliers list
+13. VIEW_SUPPLIERS - Show suppliers list
 
-12. ADD_PRODUCT - Add new product
+14. ADD_PRODUCT - Add new product
     - name: product name
     - price: unit price
     - manufacturer: optional
     - category: optional
 
-13. ADD_SUPPLIER - Add new supplier
+15. ADD_SUPPLIER - Add new supplier
     - name: supplier name
     - address: optional
     - email: optional
     - phone: optional
 
-14. ADD_WAREHOUSE - Add new warehouse
+16. ADD_WAREHOUSE - Add new warehouse
     - name: warehouse name
     - address: optional
+
+IMPORTANT RULES:
+- When user says "show products in [warehouse]", "what's in [warehouse]", "products at [warehouse]" → use VIEW_PRODUCTS_IN_WAREHOUSE
+- When user says "show products", "list products", "view products" without warehouse → use VIEW_PRODUCTS
+- When user says "moved X to Y" or "move X to Y" WITHOUT specifying source → use MOVE_PRODUCT (system will find source)
+- When user says "moved X from A to B" or "transfer X from A to B" → use TRANSFER_STOCK
+- When user says "I moved X to Y" (past tense, no source) → use MOVE_PRODUCT with quantity: 1 if not specified
 
 Respond ONLY with a JSON object in this exact format:
 {
@@ -101,10 +117,11 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Fetch context data for better understanding
-    const [productsRes, warehousesRes, suppliersRes] = await Promise.all([
+    const [productsRes, warehousesRes, suppliersRes, stockRes] = await Promise.all([
       supabase.from('products').select('pid, p_name').limit(50),
       supabase.from('warehouses').select('w_id, w_name').limit(20),
       supabase.from('suppliers').select('sup_id, s_name').limit(20),
+      supabase.from('product_warehouse').select('pid, w_id, stock, product:products(p_name), warehouse:warehouses(w_name)').limit(100),
     ]);
 
     const contextInfo = `
@@ -112,6 +129,7 @@ Current database context:
 - Products: ${productsRes.data?.map(p => `${p.p_name} (ID: ${p.pid})`).join(', ') || 'None'}
 - Warehouses: ${warehousesRes.data?.map(w => `${w.w_name} (ID: ${w.w_id})`).join(', ') || 'None'}  
 - Suppliers: ${suppliersRes.data?.map(s => `${s.s_name} (ID: ${s.sup_id})`).join(', ') || 'None'}
+- Current Stock Distribution: ${stockRes.data?.map(s => `${(s.product as any)?.p_name} has ${s.stock} units in ${(s.warehouse as any)?.w_name}`).join('; ') || 'None'}
 `;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -219,6 +237,50 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       return { action, message, success: true, data, entity: 'products' };
     }
 
+    case 'VIEW_PRODUCTS_IN_WAREHOUSE': {
+      const warehouse = await findWarehouse(supabase, params.warehouse);
+      
+      if (!warehouse) {
+        return { action, success: false, message: `Could not find warehouse: ${params.warehouse}` };
+      }
+
+      // Join product_warehouse with products to get full product info for this warehouse
+      const { data, error } = await supabase
+        .from('product_warehouse')
+        .select(`
+          stock,
+          product:products(pid, p_name, description, manufacturer, unit_price, quantity, category:categories(cat_name)),
+          warehouse:warehouses(w_id, w_name)
+        `)
+        .eq('w_id', warehouse.w_id)
+        .gt('stock', 0);
+
+      if (error) {
+        console.error('Error fetching products in warehouse:', error);
+        return { action, success: false, message: 'Failed to fetch products' };
+      }
+
+      // Transform the data to a more readable format
+      const transformedData = data?.map((item: any) => ({
+        product_id: item.product?.pid,
+        product_name: item.product?.p_name,
+        description: item.product?.description,
+        manufacturer: item.product?.manufacturer,
+        unit_price: item.product?.unit_price,
+        stock_in_warehouse: item.stock,
+        category: item.product?.category?.cat_name,
+        warehouse: item.warehouse?.w_name
+      })) || [];
+
+      return { 
+        action, 
+        message: `Products in ${warehouse.w_name}`, 
+        success: true, 
+        data: transformedData, 
+        entity: 'products_in_warehouse' 
+      };
+    }
+
     case 'VIEW_WAREHOUSES': {
       const { data } = await supabase
         .from('warehouses')
@@ -262,6 +324,20 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       let query = supabase
         .from('product_warehouse')
         .select('*, product:products(p_name), warehouse:warehouses(w_name)');
+      
+      if (params?.warehouse) {
+        const warehouse = await findWarehouse(supabase, params.warehouse);
+        if (warehouse) {
+          query = query.eq('w_id', warehouse.w_id);
+        }
+      }
+      
+      if (params?.product) {
+        const product = await findProduct(supabase, params.product);
+        if (product) {
+          query = query.eq('pid', product.pid);
+        }
+      }
       
       const { data } = await query;
       return { action, message, success: true, data, entity: 'stock' };
@@ -465,6 +541,117 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       return { action, success: true, message: `Added warehouse: ${params.name}`, data: [data] };
     }
 
+    case 'MOVE_PRODUCT': {
+      const product = await findProduct(supabase, params.product);
+      const toWarehouse = await findWarehouse(supabase, params.to_warehouse);
+      
+      if (!product) {
+        return { action, success: false, message: `Could not find product: ${params.product}` };
+      }
+      if (!toWarehouse) {
+        return { action, success: false, message: `Could not find destination warehouse: ${params.to_warehouse}` };
+      }
+
+      const quantity = params.quantity || 1;
+      
+      // Find source warehouse - either specified or auto-detect
+      let fromWarehouse = null;
+      if (params.from_warehouse) {
+        fromWarehouse = await findWarehouse(supabase, params.from_warehouse);
+      } else {
+        // Auto-detect: find warehouse where this product has sufficient stock
+        const { data: stockLocations } = await supabase
+          .from('product_warehouse')
+          .select('w_id, stock, warehouse:warehouses(w_id, w_name, address)')
+          .eq('pid', product.pid)
+          .gte('stock', quantity)
+          .order('stock', { ascending: false });
+        
+        if (stockLocations && stockLocations.length > 0) {
+          // Prefer a warehouse that's not the destination
+          const preferredLocation = stockLocations.find((loc: any) => loc.w_id !== toWarehouse.w_id);
+          const location = preferredLocation || stockLocations[0];
+          fromWarehouse = location.warehouse;
+        }
+      }
+
+      if (!fromWarehouse) {
+        // List where product exists for helpful error message
+        const { data: existingStock } = await supabase
+          .from('product_warehouse')
+          .select('stock, warehouse:warehouses(w_name)')
+          .eq('pid', product.pid)
+          .gt('stock', 0);
+        
+        const locations = existingStock?.map((s: any) => `${s.warehouse?.w_name} (${s.stock} units)`).join(', ') || 'nowhere';
+        return { 
+          action, 
+          success: false, 
+          message: `Could not find sufficient stock of ${product.p_name}. Current locations: ${locations}` 
+        };
+      }
+
+      if (fromWarehouse.w_id === toWarehouse.w_id) {
+        return { action, success: false, message: `Product is already in ${toWarehouse.w_name}` };
+      }
+
+      // Check source stock
+      const { data: sourceStock } = await supabase
+        .from('product_warehouse')
+        .select('stock')
+        .eq('pid', product.pid)
+        .eq('w_id', fromWarehouse.w_id)
+        .single();
+
+      if (!sourceStock || sourceStock.stock < quantity) {
+        return { action, success: false, message: `Insufficient stock at ${fromWarehouse.w_name}. Available: ${sourceStock?.stock || 0}` };
+      }
+
+      // Reduce source
+      await supabase
+        .from('product_warehouse')
+        .update({ stock: sourceStock.stock - quantity })
+        .eq('pid', product.pid)
+        .eq('w_id', fromWarehouse.w_id);
+
+      // Add to destination
+      const { data: destStock } = await supabase
+        .from('product_warehouse')
+        .select('stock')
+        .eq('pid', product.pid)
+        .eq('w_id', toWarehouse.w_id)
+        .maybeSingle();
+
+      if (destStock) {
+        await supabase
+          .from('product_warehouse')
+          .update({ stock: destStock.stock + quantity })
+          .eq('pid', product.pid)
+          .eq('w_id', toWarehouse.w_id);
+      } else {
+        await supabase
+          .from('product_warehouse')
+          .insert({ pid: product.pid, w_id: toWarehouse.w_id, stock: quantity });
+      }
+
+      // Log transaction
+      await supabase.from('transactions').insert({
+        amt: quantity,
+        type: 'transfer',
+        pid: product.pid,
+        w_id: fromWarehouse.w_id,
+        target_w_id: toWarehouse.w_id,
+        e_id: employeeId,
+        description: `Moved ${quantity} units of ${product.p_name} from ${fromWarehouse.w_name} to ${toWarehouse.w_name}`
+      });
+
+      return { 
+        action, 
+        success: true, 
+        message: `Moved ${quantity} units of ${product.p_name} from ${fromWarehouse.w_name} to ${toWarehouse.w_name}` 
+      };
+    }
+
     case 'TRANSFER_STOCK': {
       const product = await findProduct(supabase, params.product);
       const fromWarehouse = await findWarehouse(supabase, params.from_warehouse);
@@ -542,12 +729,23 @@ async function findProduct(supabase: any, identifier: string | number) {
     return data;
   }
   
+  // Try exact match first
+  const { data: exactMatch } = await supabase
+    .from('products')
+    .select('*')
+    .ilike('p_name', identifier)
+    .limit(1)
+    .maybeSingle();
+  
+  if (exactMatch) return exactMatch;
+  
+  // Fall back to partial match
   const { data } = await supabase
     .from('products')
     .select('*')
     .ilike('p_name', `%${identifier}%`)
     .limit(1)
-    .single();
+    .maybeSingle();
   return data;
 }
 
@@ -557,12 +755,23 @@ async function findWarehouse(supabase: any, identifier: string | number) {
     return data;
   }
   
+  // Try exact match first
+  const { data: exactMatch } = await supabase
+    .from('warehouses')
+    .select('*')
+    .ilike('w_name', identifier)
+    .limit(1)
+    .maybeSingle();
+  
+  if (exactMatch) return exactMatch;
+  
+  // Fall back to partial match
   const { data } = await supabase
     .from('warehouses')
     .select('*')
     .ilike('w_name', `%${identifier}%`)
     .limit(1)
-    .single();
+    .maybeSingle();
   return data;
 }
 
