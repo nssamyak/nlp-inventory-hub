@@ -113,9 +113,32 @@ export interface Bill {
   uploaded_by: string | null;
   uploaded_at: string;
   notes: string | null;
+  invoice_data: InvoiceData | null;
   supplier?: Supplier;
   order?: Order;
   uploader?: Employee;
+}
+
+export interface InvoiceData {
+  line_items?: LineItem[];
+  tax_rate?: number;
+  tax_amount?: number;
+  subtotal?: number;
+  total?: number;
+  payment_terms?: string;
+  due_date?: string;
+  invoice_number?: string;
+  po_reference?: string;
+  currency?: string;
+  notes?: string;
+  [key: string]: unknown;
+}
+
+export interface LineItem {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
 }
 
 export interface CommandHistory {

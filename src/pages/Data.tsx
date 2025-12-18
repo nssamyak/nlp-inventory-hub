@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Package, ShoppingCart, Clock, Building2, Filter } from 'lucide-react';
+import { Database, Package, ShoppingCart, Clock, Building2, Filter, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,6 +11,7 @@ import { useProducts, useWarehouses, useOrders, useTransactions } from '@/hooks/
 import { supabase } from '@/integrations/supabase/client';
 import { NavLink } from '@/components/NavLink';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { ProductMovementGraph } from '@/components/ProductMovementGraph';
 
 interface ProductStock {
   pid: number;
@@ -160,6 +161,10 @@ export default function Data() {
             <TabsTrigger value="transactions" className="gap-2">
               <Clock className="w-4 h-4" />
               Transactions
+            </TabsTrigger>
+            <TabsTrigger value="movement" className="gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Movement History
             </TabsTrigger>
           </TabsList>
 
@@ -389,7 +394,12 @@ export default function Data() {
                   </Table>
                 </div>
               </CardContent>
-            </Card>
+              </Card>
+          </TabsContent>
+
+          {/* Movement History Tab */}
+          <TabsContent value="movement">
+            <ProductMovementGraph />
           </TabsContent>
         </Tabs>
       </main>
