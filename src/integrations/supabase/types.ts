@@ -19,6 +19,7 @@ export type Database = {
           bill_id: string
           file_type: string | null
           file_url: string
+          invoice_data: Json | null
           notes: string | null
           order_id: number | null
           supplier_id: number | null
@@ -29,6 +30,7 @@ export type Database = {
           bill_id?: string
           file_type?: string | null
           file_url: string
+          invoice_data?: Json | null
           notes?: string | null
           order_id?: number | null
           supplier_id?: number | null
@@ -39,6 +41,7 @@ export type Database = {
           bill_id?: string
           file_type?: string | null
           file_url?: string
+          invoice_data?: Json | null
           notes?: string | null
           order_id?: number | null
           supplier_id?: number | null
