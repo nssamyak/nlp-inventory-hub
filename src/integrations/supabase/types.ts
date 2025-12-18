@@ -208,6 +208,7 @@ export type Database = {
           quantity: number
           status: string | null
           sup_id: number | null
+          target_w_id: number | null
           updated_at: string | null
         }
         Insert: {
@@ -220,6 +221,7 @@ export type Database = {
           quantity: number
           status?: string | null
           sup_id?: number | null
+          target_w_id?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -232,6 +234,7 @@ export type Database = {
           quantity?: number
           status?: string | null
           sup_id?: number | null
+          target_w_id?: number | null
           updated_at?: string | null
         }
         Relationships: [
@@ -255,6 +258,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "suppliers"
             referencedColumns: ["sup_id"]
+          },
+          {
+            foreignKeyName: "orders_target_w_id_fkey"
+            columns: ["target_w_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["w_id"]
           },
         ]
       }

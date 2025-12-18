@@ -110,18 +110,13 @@ export function BillUploadDialog({ open, onOpenChange, orderId, onComplete }: Bi
     onOpenChange(false);
   };
 
-  const handleSkip = () => {
-    onComplete();
-    handleClose();
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={() => {/* Prevent closing without upload */}}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Upload Bill/Invoice</DialogTitle>
+          <DialogTitle>Upload Bill/Invoice (Required)</DialogTitle>
           <DialogDescription>
-            Upload the bill or invoice for order #{orderId}
+            You must upload the bill or invoice for order #{orderId} before proceeding.
           </DialogDescription>
         </DialogHeader>
 
@@ -181,9 +176,6 @@ export function BillUploadDialog({ open, onOpenChange, orderId, onComplete }: Bi
 
           {/* Actions */}
           <div className="flex gap-2 justify-end">
-            <Button variant="ghost" onClick={handleSkip} disabled={uploading}>
-              Skip
-            </Button>
             <Button onClick={handleUpload} disabled={!file || uploading}>
               {uploading ? (
                 <>

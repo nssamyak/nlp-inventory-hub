@@ -121,7 +121,7 @@ export function useOrders() {
     setLoading(true);
     const { data, error } = await supabase
       .from('orders')
-      .select('*, product:products(*), supplier:suppliers(*)')
+      .select('*, product:products(*), supplier:suppliers(*), target_warehouse:warehouses!orders_target_w_id_fkey(*)')
       .order('created_at', { ascending: false });
     
     if (!error && data) {

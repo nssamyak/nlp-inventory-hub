@@ -75,7 +75,7 @@ export interface Transaction {
   t_id: number;
   time: string;
   amt: number;
-  type: 'take' | 'return' | 'transfer' | 'adjustment';
+  type: 'take' | 'return' | 'transfer' | 'adjustment' | 'receive';
   pid: number | null;
   w_id: number | null;
   target_w_id: number | null;
@@ -94,6 +94,7 @@ export interface Order {
   status: 'pending' | 'approved' | 'ordered' | 'received' | 'cancelled';
   p_id: number | null;
   sup_id: number | null;
+  target_w_id: number | null;
   price: number | null;
   date: string;
   created_by: string | null;
@@ -101,6 +102,7 @@ export interface Order {
   updated_at: string;
   product?: Product;
   supplier?: Supplier;
+  target_warehouse?: Warehouse;
   creator?: Employee;
 }
 
