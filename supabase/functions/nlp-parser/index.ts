@@ -26,11 +26,11 @@ Available actions and their required parameters:
    - from_warehouse: source warehouse name or ID
    - to_warehouse: destination warehouse name or ID
 
-4. MOVE_PRODUCT - Move product to a warehouse (use when source is NOT specified - system will find where product exists)
+4. MOVE_PRODUCT - Move product to a warehouse (use when source is NOT specified)
    - product: product name or ID
    - quantity: number of items
    - to_warehouse: destination warehouse name or ID
-   - from_warehouse: optional source warehouse (if not specified, system will auto-detect)
+   - from_warehouse: optional source warehouse (if not specified, system will find where product exists)
 
 5. CREATE_ORDER - Create a purchase order
    - product: product name or ID (REQUIRED)
@@ -38,53 +38,74 @@ Available actions and their required parameters:
    - supplier: supplier name or ID (REQUIRED - where ordering FROM)
    - warehouse: destination warehouse name or ID (REQUIRED - where ordering TO)
 
-6. UPDATE_ORDER_STATUS - Update order status
-   - order_id: order number
-   - status: one of [pending, approved, ordered, received, cancelled]
-   - NOTE: When status is "received", product stock will be added to the target warehouse
+6. RECEIVE_ORDER - Mark order(s) as received with flexible matching
+   - product: product name (optional - for matching by product)
+   - quantity: quantity received (optional - for partial receives or validation)
+   - warehouse: warehouse name where received (optional - for matching)
+   - order_id: specific order ID (optional - if user specifies order number)
+   - Use this for commands like "I received X", "received 5 widgets in Main Warehouse", "I got the bolts", "order arrived"
 
-7. VIEW_PRODUCTS - Show all products list (general view without warehouse filter)
+7. UPDATE_ORDER_STATUS - Update order status (for non-receive status changes)
+   - order_id: order ID (optional if product specified)
+   - product: product name (optional - for matching orders by product)
+   - status: one of [pending, approved, ordered, shipped, cancelled, reordered]
+   - Use this for: "cancel order #123", "cancel the widget order", "approve order 5", "reorder #10", "reorder the bolts", "mark order 7 as shipped"
+
+8. VIEW_PRODUCTS - Show all products list (general view without warehouse filter)
    - filter: optional filter criteria
 
-8. VIEW_PRODUCTS_IN_WAREHOUSE - Show products with stock levels in a specific warehouse (use for "show products in warehouse X")
+9. VIEW_PRODUCTS_IN_WAREHOUSE - Show products with stock levels in a specific warehouse
    - warehouse: warehouse name or ID (required)
 
-9. VIEW_WAREHOUSES - Show warehouses list
+10. VIEW_WAREHOUSES - Show warehouses list
 
-10. VIEW_ORDERS - Show orders list
+11. VIEW_ORDERS - Show orders list
     - status: optional status filter
 
-11. VIEW_TRANSACTIONS - Show transaction history
+12. VIEW_TRANSACTIONS - Show transaction history
     - filter: optional filter criteria
 
-12. VIEW_STOCK - Show stock levels across all warehouses
+13. VIEW_STOCK - Show stock levels across all warehouses
     - warehouse: optional warehouse filter
     - product: optional product filter
 
-13. VIEW_SUPPLIERS - Show suppliers list
+14. VIEW_SUPPLIERS - Show suppliers list
 
-14. ADD_PRODUCT - Add new product
+15. ADD_PRODUCT - Add new product
     - name: product name
     - price: unit price
     - manufacturer: optional
     - category: optional
 
-15. ADD_SUPPLIER - Add new supplier
+16. ADD_SUPPLIER - Add new supplier
     - name: supplier name
     - address: optional
     - email: optional
     - phone: optional
 
-16. ADD_WAREHOUSE - Add new warehouse
+17. ADD_WAREHOUSE - Add new warehouse
     - name: warehouse name
     - address: optional
 
-IMPORTANT RULES:
+IMPORTANT RULES FOR RECEIVING ORDERS:
+- "I received X" or "received X" or "got X" or "X arrived" → RECEIVE_ORDER with product: X
+- "I received 5 X" or "received 5 pieces of X" or "got 5 Xs" → RECEIVE_ORDER with product: X, quantity: 5
+- "I received X in Y warehouse" → RECEIVE_ORDER with product: X, warehouse: Y
+- "Update order #123 to received" or "mark order 123 received" → RECEIVE_ORDER with order_id: 123
+- "order arrived" or "the order is here" → RECEIVE_ORDER (system will find pending orders)
+
+IMPORTANT RULES FOR OTHER STATUS UPDATES:
+- "Cancel order #123" → UPDATE_ORDER_STATUS with order_id: 123, status: cancelled
+- "Cancel the widget order" → UPDATE_ORDER_STATUS with product: widget, status: cancelled
+- "Approve order #5" → UPDATE_ORDER_STATUS with order_id: 5, status: approved  
+- "Reorder #10" or "reorder the bolts" → UPDATE_ORDER_STATUS with status: reordered
+- "Mark order as shipped" → UPDATE_ORDER_STATUS with status: shipped
+
+OTHER IMPORTANT RULES:
 - When user says "show products in [warehouse]", "what's in [warehouse]", "products at [warehouse]" → use VIEW_PRODUCTS_IN_WAREHOUSE
 - When user says "show products", "list products", "view products" without warehouse → use VIEW_PRODUCTS
 - When user says "moved X to Y" or "move X to Y" WITHOUT specifying source → use MOVE_PRODUCT (system will find source)
 - When user says "moved X from A to B" or "transfer X from A to B" → use TRANSFER_STOCK
-- When user says "I moved X to Y" (past tense, no source) → use MOVE_PRODUCT with quantity: 1 if not specified
 
 Respond ONLY with a JSON object in this exact format:
 {
@@ -119,11 +140,12 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Fetch context data for better understanding
-    const [productsRes, warehousesRes, suppliersRes, stockRes] = await Promise.all([
+    const [productsRes, warehousesRes, suppliersRes, stockRes, ordersRes] = await Promise.all([
       supabase.from('products').select('pid, p_name').limit(50),
       supabase.from('warehouses').select('w_id, w_name').limit(20),
       supabase.from('suppliers').select('sup_id, s_name').limit(20),
       supabase.from('product_warehouse').select('pid, w_id, stock, product:products(p_name), warehouse:warehouses(w_name)').limit(100),
+      supabase.from('orders').select('po_id, status, quantity, product:products(p_name), supplier:suppliers(s_name), warehouse:warehouses(w_name)').in('status', ['pending', 'approved', 'ordered', 'shipped']).limit(20),
     ]);
 
     const contextInfo = `
@@ -132,6 +154,7 @@ Current database context:
 - Warehouses: ${warehousesRes.data?.map(w => `${w.w_name} (ID: ${w.w_id})`).join(', ') || 'None'}  
 - Suppliers: ${suppliersRes.data?.map(s => `${s.s_name} (ID: ${s.sup_id})`).join(', ') || 'None'}
 - Current Stock Distribution: ${stockRes.data?.map(s => `${(s.product as any)?.p_name} has ${s.stock} units in ${(s.warehouse as any)?.w_name}`).join('; ') || 'None'}
+- Pending/Active Orders: ${ordersRes.data?.map(o => `Order #${o.po_id}: ${o.quantity}x ${(o.product as any)?.p_name} from ${(o.supplier as any)?.s_name} (${o.status})`).join('; ') || 'None'}
 `;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -246,7 +269,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Could not find warehouse: ${params.warehouse}` };
       }
 
-      // Join product_warehouse with products to get full product info for this warehouse
       const { data, error } = await supabase
         .from('product_warehouse')
         .select(`
@@ -262,7 +284,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: 'Failed to fetch products' };
       }
 
-      // Transform the data to a more readable format
       const transformedData = data?.map((item: any) => ({
         product_id: item.product?.pid,
         product_name: item.product?.p_name,
@@ -302,7 +323,7 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
     case 'VIEW_ORDERS': {
       let query = supabase
         .from('orders')
-        .select('*, product:products(p_name), supplier:suppliers(s_name)')
+        .select('*, product:products(p_name), supplier:suppliers(s_name), target_warehouse:warehouses(w_name)')
         .order('created_at', { ascending: false });
       
       if (params?.status) {
@@ -353,7 +374,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Could not find ${!product ? 'product' : 'warehouse'}` };
       }
 
-      // Update stock
       const { data: currentStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -371,7 +391,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         .eq('pid', product.pid)
         .eq('w_id', warehouse.w_id);
 
-      // Log transaction
       await supabase.from('transactions').insert({
         amt: params.quantity,
         type: 'take',
@@ -396,7 +415,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Could not find ${!product ? 'product' : 'warehouse'}` };
       }
 
-      // Upsert stock
       const { data: currentStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -416,7 +434,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
           .insert({ pid: product.pid, w_id: warehouse.w_id, stock: params.quantity });
       }
 
-      // Log transaction
       await supabase.from('transactions').insert({
         amt: params.quantity,
         type: 'return',
@@ -434,7 +451,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
     }
 
     case 'CREATE_ORDER': {
-      // Validate required fields
       if (!params.supplier) {
         return { action, success: false, message: 'Please specify the supplier (where you are ordering FROM). Example: "Order 10 widgets from ABC Supplies to Main Warehouse"' };
       }
@@ -452,15 +468,12 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Could not find warehouse: ${params.warehouse}. Please add the warehouse first or check the name.` };
       }
 
-      // Smart product matching
       let product = await findProductExact(supabase, params.product);
       
       if (!product) {
-        // Try to find similar products
         const similarProducts = await findSimilarProducts(supabase, params.product);
         
         if (similarProducts && similarProducts.length > 0) {
-          // Return asking for clarification
           const productList = similarProducts.map((p: any) => `"${p.p_name}" (ID: ${p.pid})`).join(', ');
           return { 
             action, 
@@ -469,7 +482,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
             suggestedProducts: similarProducts
           };
         } else {
-          // No similar products found - suggest creating new
           return { 
             action, 
             success: false, 
@@ -506,86 +518,265 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       };
     }
 
-    case 'UPDATE_ORDER_STATUS': {
-      // Get order details first
-      const { data: order, error: fetchError } = await supabase
-        .from('orders')
-        .select('*, product:products(pid, p_name)')
-        .eq('po_id', params.order_id)
-        .single();
+    case 'RECEIVE_ORDER': {
+      // Smart order matching - find the order based on provided params
+      let matchingOrders: any[] = [];
+      
+      // If specific order_id provided, use that
+      if (params.order_id) {
+        const { data: order } = await supabase
+          .from('orders')
+          .select('*, product:products(pid, p_name), supplier:suppliers(s_name), target_warehouse:warehouses(w_id, w_name)')
+          .eq('po_id', params.order_id)
+          .single();
+        
+        if (order) {
+          matchingOrders = [order];
+        }
+      } else {
+        // Build query based on available params
+        let query = supabase
+          .from('orders')
+          .select('*, product:products(pid, p_name), supplier:suppliers(s_name), target_warehouse:warehouses(w_id, w_name)')
+          .in('status', ['pending', 'approved', 'ordered', 'shipped']);
 
-      if (fetchError || !order) {
-        return { action, success: false, message: `Could not find order #${params.order_id}` };
+        const { data: orders } = await query;
+        
+        if (orders && orders.length > 0) {
+          // Filter by product if specified
+          if (params.product) {
+            const productSearch = params.product.toLowerCase();
+            matchingOrders = orders.filter((o: any) => {
+              const productName = (o.product as any)?.p_name?.toLowerCase() || '';
+              return productName.includes(productSearch) || productSearch.includes(productName.split(' ')[0]);
+            });
+          }
+          
+          // Filter by warehouse if specified
+          if (params.warehouse && matchingOrders.length > 0) {
+            const warehouse = await findWarehouse(supabase, params.warehouse);
+            if (warehouse) {
+              matchingOrders = matchingOrders.filter((o: any) => o.target_w_id === warehouse.w_id);
+            }
+          }
+          
+          // Filter by quantity if specified
+          if (params.quantity && matchingOrders.length > 0) {
+            const exactQuantityMatches = matchingOrders.filter((o: any) => o.quantity === params.quantity);
+            if (exactQuantityMatches.length > 0) {
+              matchingOrders = exactQuantityMatches;
+            }
+          }
+          
+          // If no filters matched but we have orders, use all pending orders
+          if (matchingOrders.length === 0 && !params.product && !params.warehouse) {
+            matchingOrders = orders;
+          }
+        }
       }
 
+      // Handle results
+      if (matchingOrders.length === 0) {
+        return { 
+          action, 
+          success: false, 
+          message: `No pending orders found${params.product ? ` for "${params.product}"` : ''}${params.warehouse ? ` to ${params.warehouse}` : ''}. Use "show orders" to see all orders.`
+        };
+      }
+
+      if (matchingOrders.length > 1) {
+        // Ask for clarification
+        const orderList = matchingOrders.slice(0, 5).map((o: any) => 
+          `Order #${o.po_id}: ${o.quantity}x ${(o.product as any)?.p_name} from ${(o.supplier as any)?.s_name} → ${(o.target_warehouse as any)?.w_name} (${o.status})`
+        ).join('\n');
+        
+        return { 
+          action, 
+          success: false, 
+          message: `Multiple orders found. Please specify which one:\n${orderList}\n\nTry: "Received order #<ID>" or add more details like warehouse name.`,
+          pendingOrders: matchingOrders.slice(0, 5).map((o: any) => ({
+            po_id: o.po_id,
+            quantity: o.quantity,
+            product: (o.product as any)?.p_name,
+            supplier: (o.supplier as any)?.s_name,
+            warehouse: (o.target_warehouse as any)?.w_name,
+            status: o.status
+          }))
+        };
+      }
+
+      // Single order found - process it
+      const order = matchingOrders[0];
+      
+      // Update order status
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ status: 'received', updated_at: new Date().toISOString() })
+        .eq('po_id', order.po_id);
+
+      if (updateError) {
+        return { action, success: false, message: 'Failed to update order status' };
+      }
+
+      // Add stock to target warehouse
+      const targetWarehouseId = order.target_w_id;
+      const productId = order.p_id;
+      const quantity = order.quantity;
+
+      const { data: existingStock } = await supabase
+        .from('product_warehouse')
+        .select('stock')
+        .eq('pid', productId)
+        .eq('w_id', targetWarehouseId)
+        .maybeSingle();
+
+      if (existingStock) {
+        await supabase
+          .from('product_warehouse')
+          .update({ stock: existingStock.stock + quantity })
+          .eq('pid', productId)
+          .eq('w_id', targetWarehouseId);
+      } else {
+        await supabase
+          .from('product_warehouse')
+          .insert({ pid: productId, w_id: targetWarehouseId, stock: quantity });
+      }
+
+      // Update total product quantity
+      const { data: currentProduct } = await supabase
+        .from('products')
+        .select('quantity')
+        .eq('pid', productId)
+        .single();
+
+      await supabase
+        .from('products')
+        .update({ quantity: (currentProduct?.quantity || 0) + quantity })
+        .eq('pid', productId);
+
+      // Log transaction
+      await supabase.from('transactions').insert({
+        amt: quantity,
+        type: 'receive',
+        pid: productId,
+        w_id: targetWarehouseId,
+        e_id: employeeId,
+        description: `Received ${quantity} units of ${(order.product as any)?.p_name} from order #${order.po_id}`
+      });
+
+      return { 
+        action, 
+        success: true, 
+        message: `Order #${order.po_id} marked as received. Added ${quantity} units of ${(order.product as any)?.p_name} to ${(order.target_warehouse as any)?.w_name}.`,
+        requiresBillUpload: true,
+        orderId: order.po_id
+      };
+    }
+
+    case 'UPDATE_ORDER_STATUS': {
+      // Find order by ID or product
+      let order: any = null;
+      
+      if (params.order_id) {
+        const { data } = await supabase
+          .from('orders')
+          .select('*, product:products(pid, p_name), supplier:suppliers(s_name)')
+          .eq('po_id', params.order_id)
+          .single();
+        order = data;
+      } else if (params.product) {
+        // Find order by product name
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('*, product:products(pid, p_name), supplier:suppliers(s_name)')
+          .in('status', ['pending', 'approved', 'ordered', 'shipped']);
+        
+        if (orders && orders.length > 0) {
+          const productSearch = params.product.toLowerCase();
+          const matchingOrders = orders.filter((o: any) => {
+            const productName = (o.product as any)?.p_name?.toLowerCase() || '';
+            return productName.includes(productSearch) || productSearch.includes(productName.split(' ')[0]);
+          });
+          
+          if (matchingOrders.length === 1) {
+            order = matchingOrders[0];
+          } else if (matchingOrders.length > 1) {
+            const orderList = matchingOrders.slice(0, 5).map((o: any) => 
+              `Order #${o.po_id}: ${o.quantity}x ${(o.product as any)?.p_name} (${o.status})`
+            ).join('\n');
+            
+            return { 
+              action, 
+              success: false, 
+              message: `Multiple orders found for "${params.product}". Please specify which one:\n${orderList}\n\nTry: "${params.status} order #<ID>"`
+            };
+          }
+        }
+      }
+
+      if (!order) {
+        return { action, success: false, message: `Could not find order${params.order_id ? ` #${params.order_id}` : params.product ? ` for "${params.product}"` : ''}` };
+      }
+
+      // Handle reorder - create a new order with same details
+      if (params.status === 'reordered') {
+        const { data: newOrder, error: createError } = await supabase
+          .from('orders')
+          .insert({
+            quantity: order.quantity,
+            p_id: order.p_id,
+            sup_id: order.sup_id,
+            target_w_id: order.target_w_id,
+            price: order.price,
+            created_by: employeeId,
+            status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          return { action, success: false, message: 'Failed to create reorder' };
+        }
+
+        // Mark original as reordered
+        await supabase
+          .from('orders')
+          .update({ status: 'reordered', updated_at: new Date().toISOString() })
+          .eq('po_id', order.po_id);
+
+        return { 
+          action, 
+          success: true, 
+          message: `Reordered! Created new order #${newOrder.po_id} for ${order.quantity}x ${(order.product as any)?.p_name}. Original order #${order.po_id} marked as reordered.`,
+          requiresBillUpload: true,
+          orderId: newOrder.po_id
+        };
+      }
+
+      // Regular status update
       const { error } = await supabase
         .from('orders')
         .update({ status: params.status, updated_at: new Date().toISOString() })
-        .eq('po_id', params.order_id);
+        .eq('po_id', order.po_id);
 
       if (error) {
         return { action, success: false, message: 'Failed to update order' };
       }
 
-      // If status is "received", update the stock in target warehouse
-      if (params.status === 'received' && order.p_id && order.target_w_id) {
-        // Check if product already exists in warehouse
-        const { data: existingStock } = await supabase
-          .from('product_warehouse')
-          .select('stock')
-          .eq('pid', order.p_id)
-          .eq('w_id', order.target_w_id)
-          .maybeSingle();
-
-        if (existingStock) {
-          await supabase
-            .from('product_warehouse')
-            .update({ stock: existingStock.stock + order.quantity })
-            .eq('pid', order.p_id)
-            .eq('w_id', order.target_w_id);
-        } else {
-          await supabase
-            .from('product_warehouse')
-            .insert({ pid: order.p_id, w_id: order.target_w_id, stock: order.quantity });
-        }
-
-        // Also update total product quantity
-        const { data: currentProduct } = await supabase
-          .from('products')
-          .select('quantity')
-          .eq('pid', order.p_id)
-          .single();
-
-        await supabase
-          .from('products')
-          .update({ quantity: (currentProduct?.quantity || 0) + order.quantity })
-          .eq('pid', order.p_id);
-
-        // Log the transaction
-        await supabase.from('transactions').insert({
-          amt: order.quantity,
-          type: 'receive',
-          pid: order.p_id,
-          w_id: order.target_w_id,
-          e_id: employeeId,
-          description: `Received ${order.quantity} units of ${(order.product as any)?.p_name} from order #${params.order_id}`
-        });
-
-        return { 
-          action, 
-          success: true, 
-          message: `Order #${params.order_id} marked as received. Added ${order.quantity} units to stock.`,
-          requiresBillUpload: true,
-          orderId: params.order_id
-        };
-      }
+      const statusMessages: Record<string, string> = {
+        cancelled: `Order #${order.po_id} for ${(order.product as any)?.p_name} has been cancelled.`,
+        approved: `Order #${order.po_id} for ${(order.product as any)?.p_name} has been approved.`,
+        shipped: `Order #${order.po_id} for ${(order.product as any)?.p_name} marked as shipped.`,
+        pending: `Order #${order.po_id} for ${(order.product as any)?.p_name} set back to pending.`,
+        ordered: `Order #${order.po_id} for ${(order.product as any)?.p_name} marked as ordered.`
+      };
 
       return { 
         action, 
         success: true, 
-        message: `Updated order #${params.order_id} status to ${params.status}`,
+        message: statusMessages[params.status] || `Updated order #${order.po_id} status to ${params.status}`,
         requiresBillUpload: false,
-        orderId: params.order_id
+        orderId: order.po_id
       };
     }
 
@@ -657,12 +848,10 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
 
       const quantity = params.quantity || 1;
       
-      // Find source warehouse - either specified or auto-detect
       let fromWarehouse = null;
       if (params.from_warehouse) {
         fromWarehouse = await findWarehouse(supabase, params.from_warehouse);
       } else {
-        // Auto-detect: find warehouse where this product has sufficient stock
         const { data: stockLocations } = await supabase
           .from('product_warehouse')
           .select('w_id, stock, warehouse:warehouses(w_id, w_name, address)')
@@ -671,7 +860,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
           .order('stock', { ascending: false });
         
         if (stockLocations && stockLocations.length > 0) {
-          // Prefer a warehouse that's not the destination
           const preferredLocation = stockLocations.find((loc: any) => loc.w_id !== toWarehouse.w_id);
           const location = preferredLocation || stockLocations[0];
           fromWarehouse = location.warehouse;
@@ -679,7 +867,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       }
 
       if (!fromWarehouse) {
-        // List where product exists for helpful error message
         const { data: existingStock } = await supabase
           .from('product_warehouse')
           .select('stock, warehouse:warehouses(w_name)')
@@ -698,7 +885,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Product is already in ${toWarehouse.w_name}` };
       }
 
-      // Check source stock
       const { data: sourceStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -710,14 +896,12 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Insufficient stock at ${fromWarehouse.w_name}. Available: ${sourceStock?.stock || 0}` };
       }
 
-      // Reduce source
       await supabase
         .from('product_warehouse')
         .update({ stock: sourceStock.stock - quantity })
         .eq('pid', product.pid)
         .eq('w_id', fromWarehouse.w_id);
 
-      // Add to destination
       const { data: destStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -737,7 +921,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
           .insert({ pid: product.pid, w_id: toWarehouse.w_id, stock: quantity });
       }
 
-      // Log transaction
       await supabase.from('transactions').insert({
         amt: quantity,
         type: 'transfer',
@@ -764,7 +947,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: 'Could not find product or warehouse(s)' };
       }
 
-      // Check source stock
       const { data: sourceStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -776,14 +958,12 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: 'Insufficient stock at source warehouse' };
       }
 
-      // Reduce source
       await supabase
         .from('product_warehouse')
         .update({ stock: sourceStock.stock - params.quantity })
         .eq('pid', product.pid)
         .eq('w_id', fromWarehouse.w_id);
 
-      // Add to destination
       const { data: destStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -803,7 +983,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
           .insert({ pid: product.pid, w_id: toWarehouse.w_id, stock: params.quantity });
       }
 
-      // Log transaction
       await supabase.from('transactions').insert({
         amt: params.quantity,
         type: 'transfer',
@@ -832,7 +1011,6 @@ async function findProduct(supabase: any, identifier: string | number) {
     return data;
   }
   
-  // Try exact match first
   const { data: exactMatch } = await supabase
     .from('products')
     .select('*')
@@ -842,7 +1020,6 @@ async function findProduct(supabase: any, identifier: string | number) {
   
   if (exactMatch) return exactMatch;
   
-  // Fall back to partial match
   const { data } = await supabase
     .from('products')
     .select('*')
@@ -852,7 +1029,6 @@ async function findProduct(supabase: any, identifier: string | number) {
   return data;
 }
 
-// Strict exact match only
 async function findProductExact(supabase: any, identifier: string | number) {
   if (typeof identifier === 'number') {
     const { data } = await supabase.from('products').select('*').eq('pid', identifier).single();
@@ -868,11 +1044,9 @@ async function findProductExact(supabase: any, identifier: string | number) {
   return data;
 }
 
-// Find similar products for suggestions
 async function findSimilarProducts(supabase: any, identifier: string) {
   const searchTerm = identifier.toLowerCase();
   
-  // Get all products and do fuzzy matching
   const { data: allProducts } = await supabase
     .from('products')
     .select('pid, p_name, unit_price')
@@ -880,7 +1054,6 @@ async function findSimilarProducts(supabase: any, identifier: string) {
   
   if (!allProducts) return [];
   
-  // Simple similarity check - contains any word from the search term
   const words = searchTerm.split(/\s+/).filter(w => w.length > 2);
   
   const similar = allProducts.filter((p: any) => {
@@ -888,7 +1061,7 @@ async function findSimilarProducts(supabase: any, identifier: string) {
     return words.some(word => name.includes(word) || word.includes(name.split(/\s+/)[0]));
   });
   
-  return similar.slice(0, 5); // Return top 5 matches
+  return similar.slice(0, 5);
 }
 
 async function findWarehouse(supabase: any, identifier: string | number) {
@@ -897,7 +1070,6 @@ async function findWarehouse(supabase: any, identifier: string | number) {
     return data;
   }
   
-  // Try exact match first
   const { data: exactMatch } = await supabase
     .from('warehouses')
     .select('*')
@@ -907,7 +1079,6 @@ async function findWarehouse(supabase: any, identifier: string | number) {
   
   if (exactMatch) return exactMatch;
   
-  // Fall back to partial match
   const { data } = await supabase
     .from('warehouses')
     .select('*')
