@@ -1,1 +1,7 @@
 project_id = "hwhszwgofdhkuxvuethd"
+
+[functions.nlp-parser]
+verify_jwt = false
+
+[functions.mongodb-bills]
+verify_jwt = false

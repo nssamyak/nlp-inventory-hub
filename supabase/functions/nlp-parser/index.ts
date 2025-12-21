@@ -528,6 +528,7 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
           .from('orders')
           .select('*, product:products(pid, p_name), supplier:suppliers(s_name), target_warehouse:warehouses(w_id, w_name)')
           .eq('po_id', params.order_id)
+          .in('status', ['pending', 'approved', 'ordered', 'shipped', 'partial'])
           .single();
         
         if (order) {
@@ -538,7 +539,7 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         let query = supabase
           .from('orders')
           .select('*, product:products(pid, p_name), supplier:suppliers(s_name), target_warehouse:warehouses(w_id, w_name)')
-          .in('status', ['pending', 'approved', 'ordered', 'shipped']);
+          .in('status', ['pending', 'approved', 'ordered', 'shipped', 'partial']);
 
         const { data: orders } = await query;
         
@@ -560,7 +561,7 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
             }
           }
           
-          // Filter by quantity if specified
+          // Filter by quantity if specified (for exact match)
           if (params.quantity && matchingOrders.length > 0) {
             const exactQuantityMatches = matchingOrders.filter((o: any) => o.quantity === params.quantity);
             if (exactQuantityMatches.length > 0) {
@@ -607,11 +608,35 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
 
       // Single order found - process it
       const order = matchingOrders[0];
+      const targetWarehouseId = order.target_w_id;
+      const productId = order.p_id;
       
-      // Update order status
+      // Determine quantity to receive (partial or full)
+      const orderQuantity = order.quantity;
+      const receivedQuantity = params.quantity || orderQuantity; // Default to full order if not specified
+      
+      // Validate received quantity
+      if (receivedQuantity > orderQuantity) {
+        return { 
+          action, 
+          success: false, 
+          message: `Cannot receive ${receivedQuantity} units. Order #${order.po_id} only has ${orderQuantity} units remaining.`
+        };
+      }
+      
+      // Calculate remaining quantity
+      const remainingQuantity = orderQuantity - receivedQuantity;
+      const isPartialReceive = remainingQuantity > 0;
+      
+      // Update order status and remaining quantity
+      const newStatus = isPartialReceive ? 'partial' : 'received';
       const { error: updateError } = await supabase
         .from('orders')
-        .update({ status: 'received', updated_at: new Date().toISOString() })
+        .update({ 
+          status: newStatus, 
+          quantity: remainingQuantity,
+          updated_at: new Date().toISOString() 
+        })
         .eq('po_id', order.po_id);
 
       if (updateError) {
@@ -619,10 +644,6 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       }
 
       // Add stock to target warehouse
-      const targetWarehouseId = order.target_w_id;
-      const productId = order.p_id;
-      const quantity = order.quantity;
-
       const { data: existingStock } = await supabase
         .from('product_warehouse')
         .select('stock')
@@ -633,13 +654,13 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
       if (existingStock) {
         await supabase
           .from('product_warehouse')
-          .update({ stock: existingStock.stock + quantity })
+          .update({ stock: existingStock.stock + receivedQuantity })
           .eq('pid', productId)
           .eq('w_id', targetWarehouseId);
       } else {
         await supabase
           .from('product_warehouse')
-          .insert({ pid: productId, w_id: targetWarehouseId, stock: quantity });
+          .insert({ pid: productId, w_id: targetWarehouseId, stock: receivedQuantity });
       }
 
       // Update total product quantity
@@ -651,24 +672,28 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
 
       await supabase
         .from('products')
-        .update({ quantity: (currentProduct?.quantity || 0) + quantity })
+        .update({ quantity: (currentProduct?.quantity || 0) + receivedQuantity })
         .eq('pid', productId);
 
       // Log transaction
       await supabase.from('transactions').insert({
-        amt: quantity,
+        amt: receivedQuantity,
         type: 'receive',
         pid: productId,
         w_id: targetWarehouseId,
         e_id: employeeId,
-        description: `Received ${quantity} units of ${(order.product as any)?.p_name} from order #${order.po_id}`
+        description: `Received ${receivedQuantity} units of ${(order.product as any)?.p_name} from order #${order.po_id}${isPartialReceive ? ` (partial, ${remainingQuantity} remaining)` : ''}`
       });
+
+      const message = isPartialReceive 
+        ? `Partially received ${receivedQuantity} of ${orderQuantity} units of ${(order.product as any)?.p_name} to ${(order.target_warehouse as any)?.w_name}. Order #${order.po_id} has ${remainingQuantity} units remaining.`
+        : `Order #${order.po_id} fully received. Added ${receivedQuantity} units of ${(order.product as any)?.p_name} to ${(order.target_warehouse as any)?.w_name}.`;
 
       return { 
         action, 
         success: true, 
-        message: `Order #${order.po_id} marked as received. Added ${quantity} units of ${(order.product as any)?.p_name} to ${(order.target_warehouse as any)?.w_name}.`,
-        requiresBillUpload: true,
+        message,
+        requiresBillUpload: false, // Bill is now only required when creating orders
         orderId: order.po_id
       };
     }
