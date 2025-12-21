@@ -35,8 +35,9 @@ Available actions and their required parameters:
 5. CREATE_ORDER - Create a purchase order
    - product: product name or ID (REQUIRED)
    - quantity: number of items (REQUIRED)
-   - supplier: supplier name or ID (REQUIRED - where ordering FROM)
    - warehouse: destination warehouse name or ID (REQUIRED - where ordering TO)
+   - supplier: supplier name or ID (OPTIONAL - where ordering FROM, will ask if not provided)
+   - unit_price: price per unit (OPTIONAL - e.g., "$549.99", "549.99")
 
 6. RECEIVE_ORDER - Mark order(s) as received with flexible matching
    - product: product name (optional - for matching by product)
@@ -451,16 +452,8 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
     }
 
     case 'CREATE_ORDER': {
-      if (!params.supplier) {
-        return { action, success: false, message: 'Please specify the supplier (where you are ordering FROM). Example: "Order 10 widgets from ABC Supplies to Main Warehouse"' };
-      }
       if (!params.warehouse) {
-        return { action, success: false, message: 'Please specify the target warehouse (where the order should go TO). Example: "Order 10 widgets from ABC Supplies to Main Warehouse"' };
-      }
-
-      const supplier = await findSupplier(supabase, params.supplier);
-      if (!supplier) {
-        return { action, success: false, message: `Could not find supplier: ${params.supplier}. Please add the supplier first or check the name.` };
+        return { action, success: false, message: 'Please specify the target warehouse (where the order should go TO). Example: "Order 10 widgets to Main Warehouse" or "I ordered 5 CPUs at $500 to East"' };
       }
 
       const warehouse = await findWarehouse(supabase, params.warehouse);
@@ -468,7 +461,24 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: `Could not find warehouse: ${params.warehouse}. Please add the warehouse first or check the name.` };
       }
 
+      // Supplier is optional - if not provided, we'll create the order without one
+      let supplier = null;
+      if (params.supplier) {
+        supplier = await findSupplier(supabase, params.supplier);
+        if (!supplier) {
+          return { action, success: false, message: `Could not find supplier: ${params.supplier}. Please add the supplier first or check the name.` };
+        }
+      }
+
       let product = await findProductExact(supabase, params.product);
+      
+      // Parse unit price if provided (handles "$549.99", "549.99", etc.)
+      let unitPrice = null;
+      if (params.unit_price) {
+        const priceStr = String(params.unit_price).replace(/[$,]/g, '');
+        unitPrice = parseFloat(priceStr);
+        if (isNaN(unitPrice)) unitPrice = null;
+      }
       
       if (!product) {
         const similarProducts = await findSimilarProducts(supabase, params.product);
@@ -482,12 +492,44 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
             suggestedProducts: similarProducts
           };
         } else {
-          return { 
-            action, 
-            success: false, 
-            message: `Product "${params.product}" does not exist. Would you like to add it? Try: "Add product ${params.product} at price X" then reorder.`
-          };
+          // Auto-create the product if we have a price
+          if (unitPrice !== null) {
+            const { data: newProduct, error: productError } = await supabase
+              .from('products')
+              .insert({
+                p_name: params.product,
+                unit_price: unitPrice,
+                quantity: 0
+              })
+              .select()
+              .single();
+            
+            if (productError) {
+              console.error('Product creation error:', productError);
+              return { action, success: false, message: 'Failed to create product' };
+            }
+            
+            product = newProduct;
+          } else {
+            return { 
+              action, 
+              success: false, 
+              message: `Product "${params.product}" does not exist. Would you like to add it? Try: "Add product ${params.product} at price X" then reorder, or include the price: "Order 5 ${params.product} at $100 to ${params.warehouse}"`
+            };
+          }
         }
+      }
+
+      // Use provided unit price or fall back to product's unit price
+      const finalUnitPrice = unitPrice !== null ? unitPrice : (product.unit_price || 0);
+      const totalPrice = finalUnitPrice * params.quantity;
+
+      // If unit price was provided but product didn't have one, update the product
+      if (unitPrice !== null && product.unit_price !== unitPrice) {
+        await supabase
+          .from('products')
+          .update({ unit_price: unitPrice })
+          .eq('pid', product.pid);
       }
 
       const { data: order, error } = await supabase
@@ -495,9 +537,9 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         .insert({
           quantity: params.quantity,
           p_id: product.pid,
-          sup_id: supplier.sup_id,
+          sup_id: supplier?.sup_id || null,
           target_w_id: warehouse.w_id,
-          price: product.unit_price * params.quantity,
+          price: totalPrice,
           created_by: employeeId,
           status: 'pending'
         })
@@ -509,10 +551,13 @@ async function executeAction(supabase: any, parsed: any, authHeader: string | nu
         return { action, success: false, message: 'Failed to create order' };
       }
 
+      const supplierInfo = supplier ? ` from ${supplier.s_name}` : '';
+      const priceInfo = totalPrice > 0 ? ` (Total: $${totalPrice.toFixed(2)})` : '';
+      
       return { 
         action, 
         success: true, 
-        message: `Created purchase order #${order.po_id} for ${params.quantity} units of ${product.p_name} from ${supplier.s_name} → ${warehouse.w_name}. Product quantity will update when order is marked as received.`,
+        message: `Created purchase order #${order.po_id} for ${params.quantity}x ${product.p_name}${supplierInfo} → ${warehouse.w_name}${priceInfo}. Product quantity will update when order is marked as received.`,
         requiresBillUpload: true,
         orderId: order.po_id
       };
