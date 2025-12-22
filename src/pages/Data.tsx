@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Package, ShoppingCart, Clock, Building2, Filter, TrendingUp } from 'lucide-react';
+import { Database, Package, ShoppingCart, Clock, Building2, Filter, TrendingUp, FileText, ExternalLink, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -21,6 +23,12 @@ interface ProductStock {
   warehouse: { w_name: string } | null;
 }
 
+interface BillInfo {
+  bill_id: string;
+  file_url: string;
+  order_id: number;
+}
+
 export default function Data() {
   const { user, userRole, loading } = useAuth();
   const navigate = useNavigate();
@@ -32,6 +40,9 @@ export default function Data() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('all');
   const [productStock, setProductStock] = useState<ProductStock[]>([]);
   const [orderFilter, setOrderFilter] = useState<string>('all');
+  const [bills, setBills] = useState<Record<number, BillInfo>>({});
+  const [loadingBill, setLoadingBill] = useState<number | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!loading && !user) {
@@ -42,6 +53,55 @@ export default function Data() {
   useEffect(() => {
     fetchProductStock();
   }, [selectedWarehouse]);
+
+  // Fetch bills for orders
+  useEffect(() => {
+    const fetchBills = async () => {
+      if (!orders || orders.length === 0) return;
+      
+      const orderIds = orders.map(o => o.po_id);
+      const { data: billsData } = await supabase
+        .from('bills')
+        .select('bill_id, file_url, order_id')
+        .in('order_id', orderIds);
+
+      if (billsData) {
+        const billMap: Record<number, BillInfo> = {};
+        billsData.forEach(bill => {
+          if (bill.order_id) {
+            billMap[bill.order_id] = bill as BillInfo;
+          }
+        });
+        setBills(billMap);
+      }
+    };
+
+    fetchBills();
+  }, [orders]);
+
+  const handleViewBill = async (orderId: number) => {
+    const bill = bills[orderId];
+    if (!bill) return;
+
+    setLoadingBill(orderId);
+    try {
+      const { data: signedUrl, error } = await supabase.storage
+        .from('bills')
+        .createSignedUrl(bill.file_url, 3600);
+
+      if (error) throw error;
+      window.open(signedUrl.signedUrl, '_blank');
+    } catch (error) {
+      console.error('Error getting bill URL:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to retrieve invoice. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingBill(null);
+    }
+  };
 
   const fetchProductStock = async () => {
     let query = supabase
@@ -294,12 +354,13 @@ export default function Data() {
                       <TableHead>Price</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead>Invoice</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredOrders?.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center text-muted-foreground">
                           No orders found.
                         </TableCell>
                       </TableRow>
@@ -327,6 +388,28 @@ export default function Data() {
                             </Badge>
                           </TableCell>
                           <TableCell>{order.date || '-'}</TableCell>
+                          <TableCell>
+                            {bills[order.po_id] ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewBill(order.po_id)}
+                                disabled={loadingBill === order.po_id}
+                                className="h-7 px-2 text-primary hover:text-primary hover:bg-primary/10"
+                              >
+                                {loadingBill === order.po_id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <FileText className="w-4 h-4 mr-1" />
+                                    <ExternalLink className="w-3 h-3" />
+                                  </>
+                                )}
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
