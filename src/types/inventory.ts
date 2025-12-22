@@ -90,7 +90,8 @@ export interface Transaction {
 
 export interface Order {
   po_id: number;
-  quantity: number;
+  quantity_ordered: number;
+  quantity_received: number;
   status: 'pending' | 'approved' | 'ordered' | 'received' | 'cancelled' | 'partial';
   p_id: number | null;
   sup_id: number | null;
