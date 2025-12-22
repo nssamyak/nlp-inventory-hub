@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { FileText, ExternalLink, Loader2 } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -8,12 +9,90 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface DataTableProps {
   data: unknown[];
 }
 
+interface BillInfo {
+  bill_id: string;
+  file_url: string;
+  order_id: number;
+}
+
 export function DataTable({ data }: DataTableProps) {
+  const [bills, setBills] = useState<Record<number, BillInfo>>({});
+  const [loadingBill, setLoadingBill] = useState<number | null>(null);
+  const { toast } = useToast();
+
+  // Check if this is order data (has po_id field)
+  const isOrderData = useMemo(() => {
+    if (!data || data.length === 0) return false;
+    const first = data[0] as Record<string, unknown>;
+    return 'po_id' in first || 'orderId' in first || 'order_id' in first;
+  }, [data]);
+
+  // Fetch bills for orders
+  useEffect(() => {
+    if (!isOrderData || !data || data.length === 0) return;
+
+    const fetchBills = async () => {
+      const orderIds = data.map(row => {
+        const r = row as Record<string, unknown>;
+        return (r.po_id || r.orderId || r.order_id) as number;
+      }).filter(Boolean);
+
+      if (orderIds.length === 0) return;
+
+      const { data: billsData } = await supabase
+        .from('bills')
+        .select('bill_id, file_url, order_id')
+        .in('order_id', orderIds);
+
+      if (billsData) {
+        const billMap: Record<number, BillInfo> = {};
+        billsData.forEach(bill => {
+          if (bill.order_id) {
+            billMap[bill.order_id] = bill as BillInfo;
+          }
+        });
+        setBills(billMap);
+      }
+    };
+
+    fetchBills();
+  }, [data, isOrderData]);
+
+  const handleViewBill = async (orderId: number) => {
+    const bill = bills[orderId];
+    if (!bill) return;
+
+    setLoadingBill(orderId);
+    try {
+      // Generate signed URL for private bucket
+      const { data: signedUrl, error } = await supabase.storage
+        .from('bills')
+        .createSignedUrl(bill.file_url, 3600); // 1 hour expiry
+
+      if (error) throw error;
+
+      // Open in new tab
+      window.open(signedUrl.signedUrl, '_blank');
+    } catch (error) {
+      console.error('Error getting bill URL:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to retrieve bill. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingBill(null);
+    }
+  };
+
   if (!data || data.length === 0) return null;
 
   const columns = useMemo(() => {
@@ -77,6 +156,10 @@ export function DataTable({ data }: DataTableProps) {
       .trim();
   };
 
+  const getOrderId = (row: Record<string, unknown>): number | null => {
+    return (row.po_id || row.orderId || row.order_id) as number | null;
+  };
+
   return (
     <div className="rounded-md border border-border/50 overflow-hidden bg-card/50 backdrop-blur">
       <Table className="data-table">
@@ -87,18 +170,52 @@ export function DataTable({ data }: DataTableProps) {
                 {formatHeader(col)}
               </TableHead>
             ))}
+            {isOrderData && (
+              <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Invoice
+              </TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.slice(0, 10).map((row, i) => (
-            <TableRow key={i} className="border-border/30 hover:bg-muted/30">
-              {columns.map(col => (
-                <TableCell key={col} className="text-sm">
-                  {formatValue((row as Record<string, unknown>)[col], col)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
+          {data.slice(0, 10).map((row, i) => {
+            const orderId = isOrderData ? getOrderId(row as Record<string, unknown>) : null;
+            const hasBill = orderId ? !!bills[orderId] : false;
+
+            return (
+              <TableRow key={i} className="border-border/30 hover:bg-muted/30">
+                {columns.map(col => (
+                  <TableCell key={col} className="text-sm">
+                    {formatValue((row as Record<string, unknown>)[col], col)}
+                  </TableCell>
+                ))}
+                {isOrderData && (
+                  <TableCell className="text-sm">
+                    {hasBill && orderId ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewBill(orderId)}
+                        disabled={loadingBill === orderId}
+                        className="h-7 px-2 text-primary hover:text-primary hover:bg-primary/10"
+                      >
+                        {loadingBill === orderId ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <FileText className="w-4 h-4 mr-1" />
+                            <ExternalLink className="w-3 h-3" />
+                          </>
+                        )}
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">-</span>
+                    )}
+                  </TableCell>
+                )}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
       {data.length > 10 && (

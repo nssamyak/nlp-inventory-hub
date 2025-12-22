@@ -42,23 +42,11 @@ export function BillUploadDialog({ open, onOpenChange, orderId, onComplete }: Bi
     }
   };
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = error => reject(error);
-    });
-  };
-
   const handleUpload = async () => {
     if (!file || !orderId) return;
 
     setUploading(true);
     try {
-      // Convert file to base64
-      const fileData = await fileToBase64(file);
-
       // Get order details for supplier
       const { data: order } = await supabase
         .from('orders')
@@ -66,32 +54,33 @@ export function BillUploadDialog({ open, onOpenChange, orderId, onComplete }: Bi
         .eq('po_id', orderId)
         .single();
 
-      // Upload to MongoDB via edge function
-      const { data: mongoResult, error: mongoError } = await supabase.functions.invoke('mongodb-bills', {
-        body: {
-          action: 'upload',
-          data: {
-            orderId,
-            supplierId: order?.sup_id,
-            fileName: file.name,
-            fileType: file.type,
-            fileData,
-            notes: notes || null,
-            uploadedBy: employee?.e_id,
-          }
-        }
-      });
+      // Generate unique file path
+      const fileExt = file.name.split('.').pop();
+      const fileName = `order_${orderId}_${Date.now()}.${fileExt}`;
+      const filePath = `${orderId}/${fileName}`;
 
-      if (mongoError) throw mongoError;
-      if (!mongoResult?.success) throw new Error(mongoResult?.error || 'Upload failed');
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('bills')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
 
-      // Create reference record in Supabase
+      if (uploadError) throw uploadError;
+
+      // Get public URL (or signed URL for private bucket)
+      const { data: urlData } = supabase.storage
+        .from('bills')
+        .getPublicUrl(filePath);
+
+      // Store metadata in bills table
       const { error: billError } = await supabase
         .from('bills')
         .insert({
           order_id: orderId,
           supplier_id: order?.sup_id,
-          file_url: `mongodb://${mongoResult.documentId}`, // MongoDB reference
+          file_url: filePath, // Store path for signed URL generation
           file_type: file.type,
           uploaded_by: employee?.e_id,
           notes: notes || null,
@@ -101,7 +90,7 @@ export function BillUploadDialog({ open, onOpenChange, orderId, onComplete }: Bi
 
       toast({
         title: 'Success',
-        description: 'Bill uploaded to MongoDB successfully',
+        description: 'Bill uploaded successfully',
       });
 
       onComplete();
