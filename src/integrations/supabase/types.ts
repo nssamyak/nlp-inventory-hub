@@ -205,7 +205,8 @@ export type Database = {
           p_id: number | null
           po_id: number
           price: number | null
-          quantity: number
+          quantity_ordered: number
+          quantity_received: number | null
           status: string | null
           sup_id: number | null
           target_w_id: number | null
@@ -218,7 +219,8 @@ export type Database = {
           p_id?: number | null
           po_id?: number
           price?: number | null
-          quantity: number
+          quantity_ordered: number
+          quantity_received?: number | null
           status?: string | null
           sup_id?: number | null
           target_w_id?: number | null
@@ -231,7 +233,8 @@ export type Database = {
           p_id?: number | null
           po_id?: number
           price?: number | null
-          quantity?: number
+          quantity_ordered?: number
+          quantity_received?: number | null
           status?: string | null
           sup_id?: number | null
           target_w_id?: number | null

@@ -350,7 +350,8 @@ export default function Data() {
                       <TableHead>Order ID</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>Supplier</TableHead>
-                      <TableHead>Quantity</TableHead>
+                      <TableHead>Qty Ordered</TableHead>
+                      <TableHead>Qty Received</TableHead>
                       <TableHead>Price</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
@@ -360,7 +361,7 @@ export default function Data() {
                   <TableBody>
                     {filteredOrders?.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center text-muted-foreground">
                           No orders found.
                         </TableCell>
                       </TableRow>
@@ -370,7 +371,8 @@ export default function Data() {
                           <TableCell className="font-mono">#{order.po_id}</TableCell>
                           <TableCell>{order.product?.p_name || '-'}</TableCell>
                           <TableCell>{order.supplier?.s_name || '-'}</TableCell>
-                          <TableCell>{order.quantity}</TableCell>
+                          <TableCell>{order.quantity_ordered}</TableCell>
+                          <TableCell>{order.quantity_received || 0}</TableCell>
                           <TableCell>${order.price?.toFixed(2) || '0.00'}</TableCell>
                           <TableCell>
                             <Badge
