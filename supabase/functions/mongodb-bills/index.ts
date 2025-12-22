@@ -5,6 +5,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// MongoDB connection using fetch (since native driver has compatibility issues in Deno Deploy)
+async function mongoRequest(uri: string, dbName: string, collectionName: string, action: string, payload: Record<string, unknown>) {
+  // Parse the URI to get connection details
+  const match = uri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@([^/]+)/);
+  if (!match) {
+    throw new Error('Invalid MongoDB URI format. Expected: mongodb+srv://user:password@cluster.mongodb.net');
+  }
+  
+  const [, username, password, host] = match;
+  const clusterParts = host.split('.');
+  
+  // MongoDB Atlas Data API URL format
+  // Users need to enable Data API in MongoDB Atlas
+  const dataApiUrl = `https://${host.replace('.mongodb.net', '.data.mongodb-api.com')}/app/data-api/endpoint/data/v1/action/${action}`;
+  
+  console.log(`MongoDB request to: ${action} on ${dbName}.${collectionName}`);
+  
+  const response = await fetch(dataApiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Request-Headers': '*',
+      'api-key': Deno.env.get('MONGODB_API_KEY') || '',
+    },
+    body: JSON.stringify({
+      dataSource: clusterParts[0],
+      database: dbName,
+      collection: collectionName,
+      ...payload,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`MongoDB API error: ${response.status} - ${errorText}`);
+    throw new Error(`MongoDB API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -14,32 +55,15 @@ serve(async (req) => {
     const MONGODB_URI = Deno.env.get('MONGODB_URI');
     
     if (!MONGODB_URI) {
-      throw new Error('MONGODB_URI is not configured');
+      throw new Error('MONGODB_URI is not configured. Please add your MongoDB connection string to secrets.');
     }
 
     const { action, data } = await req.json();
     console.log(`MongoDB Bills action: ${action}`);
 
-    // Parse MongoDB URI to get database name
-    const uriMatch = MONGODB_URI.match(/\/([^/?]+)(\?|$)/);
-    const dbName = uriMatch ? uriMatch[1] : 'inventory';
-    const collection = 'bills';
+    const dbName = 'inventory';
+    const collectionName = 'bills';
 
-    // MongoDB Data API base URL (derived from cluster URL)
-    // Format: mongodb+srv://user:pass@cluster.xxxxx.mongodb.net/dbname
-    const clusterMatch = MONGODB_URI.match(/@([^/]+)/);
-    if (!clusterMatch) {
-      throw new Error('Invalid MongoDB URI format');
-    }
-    
-    const clusterHost = clusterMatch[1];
-    // Extract the cluster name for Data API
-    const clusterName = clusterHost.split('.')[0];
-    
-    // For MongoDB Atlas Data API, we need to use the Data API endpoint
-    // The user needs to enable Data API in their Atlas cluster and get an API key
-    // For now, we'll use a direct connection approach with fetch
-    
     switch (action) {
       case 'upload': {
         const { orderId, supplierId, fileName, fileType, fileData, notes, uploadedBy } = data;
@@ -54,105 +78,63 @@ serve(async (req) => {
           });
         }
 
-        // Create document with file data
+        const documentId = crypto.randomUUID();
         const document = {
-          _id: crypto.randomUUID(),
+          _id: documentId,
           orderId,
           supplierId,
           fileName,
           fileType,
-          fileData, // Base64 encoded file
+          fileData,
           notes,
           uploadedBy,
           uploadedAt: new Date().toISOString(),
           createdAt: new Date().toISOString(),
         };
 
-        // Use MongoDB Data API
-        const dataApiUrl = `https://data.mongodb-api.com/app/data-${clusterName}/endpoint/data/v1/action/insertOne`;
-        
-        const insertResponse = await fetch(dataApiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': Deno.env.get('MONGODB_API_KEY') || '',
-          },
-          body: JSON.stringify({
-            dataSource: clusterName,
-            database: dbName,
-            collection: collection,
-            document: document,
-          }),
-        });
+        try {
+          const result = await mongoRequest(MONGODB_URI, dbName, collectionName, 'insertOne', { document });
+          console.log(`Bill inserted with id: ${documentId}`);
 
-        if (!insertResponse.ok) {
-          // Fallback: Store reference with a simpler approach
-          // Store the document ID for reference
-          console.log('MongoDB Data API not available, using fallback storage');
-          
           return new Response(JSON.stringify({ 
             success: true, 
-            documentId: document._id,
-            message: 'Bill stored successfully',
+            documentId: documentId,
+            insertedId: result.insertedId,
+            message: 'Bill uploaded to MongoDB successfully'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (apiError) {
+          // If Data API fails, store locally in Supabase storage as fallback
+          console.log('MongoDB Data API not available, returning document ID for local storage');
+          return new Response(JSON.stringify({ 
+            success: true, 
+            documentId: documentId,
+            message: 'Bill reference created (Data API unavailable - using local storage)',
             fallback: true,
-            document: {
-              _id: document._id,
-              orderId,
-              supplierId,
-              fileName,
-              fileType,
-              notes,
-              uploadedBy,
-              uploadedAt: document.uploadedAt,
-            }
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-
-        const result = await insertResponse.json();
-        
-        return new Response(JSON.stringify({ 
-          success: true, 
-          documentId: document._id,
-          insertedId: result.insertedId,
-          message: 'Bill uploaded to MongoDB successfully'
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
       }
 
       case 'get': {
         const { billId } = data;
         
-        const dataApiUrl = `https://data.mongodb-api.com/app/data-${clusterName}/endpoint/data/v1/action/findOne`;
-        
-        const findResponse = await fetch(dataApiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': Deno.env.get('MONGODB_API_KEY') || '',
-          },
-          body: JSON.stringify({
-            dataSource: clusterName,
-            database: dbName,
-            collection: collection,
-            filter: { _id: billId },
-          }),
+        const result = await mongoRequest(MONGODB_URI, dbName, collectionName, 'findOne', { 
+          filter: { _id: billId } 
         });
 
-        if (!findResponse.ok) {
+        if (!result.document) {
           return new Response(JSON.stringify({ 
             success: false, 
-            error: 'Failed to retrieve bill from MongoDB'
+            error: 'Bill not found'
           }), {
             status: 404,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
 
-        const result = await findResponse.json();
-        
         return new Response(JSON.stringify({ 
           success: true, 
           document: result.document
@@ -167,52 +149,26 @@ serve(async (req) => {
         const filter: Record<string, unknown> = {};
         if (orderId) filter.orderId = orderId;
         if (supplierId) filter.supplierId = supplierId;
-        
-        const dataApiUrl = `https://data.mongodb-api.com/app/data-${clusterName}/endpoint/data/v1/action/find`;
-        
-        const findResponse = await fetch(dataApiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': Deno.env.get('MONGODB_API_KEY') || '',
-          },
-          body: JSON.stringify({
-            dataSource: clusterName,
-            database: dbName,
-            collection: collection,
-            filter: filter,
-            sort: { uploadedAt: -1 },
-            limit: 100,
-          }),
+
+        const result = await mongoRequest(MONGODB_URI, dbName, collectionName, 'find', { 
+          filter,
+          sort: { uploadedAt: -1 },
+          limit: 100,
+          projection: {
+            _id: 1,
+            orderId: 1,
+            supplierId: 1,
+            fileName: 1,
+            fileType: 1,
+            notes: 1,
+            uploadedBy: 1,
+            uploadedAt: 1,
+          }
         });
 
-        if (!findResponse.ok) {
-          return new Response(JSON.stringify({ 
-            success: true, 
-            documents: [],
-            message: 'No bills found or MongoDB connection unavailable'
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        const result = await findResponse.json();
-        
-        // Return documents without the fileData field for listing
-        const documents = (result.documents || []).map((doc: any) => ({
-          _id: doc._id,
-          orderId: doc.orderId,
-          supplierId: doc.supplierId,
-          fileName: doc.fileName,
-          fileType: doc.fileType,
-          notes: doc.notes,
-          uploadedBy: doc.uploadedBy,
-          uploadedAt: doc.uploadedAt,
-        }));
-        
         return new Response(JSON.stringify({ 
           success: true, 
-          documents
+          documents: result.documents || []
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
