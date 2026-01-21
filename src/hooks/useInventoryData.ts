@@ -152,7 +152,7 @@ export function useTransactions() {
     setLoading(true);
     const { data, error } = await supabase
       .from('transactions')
-      .select('*, product:products(*)')
+      .select('*, product:products(*), warehouse:warehouses(*), employee:employees(*)')
       .order('time', { ascending: false })
       .limit(100);
     
