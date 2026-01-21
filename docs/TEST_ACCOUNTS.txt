@@ -1,0 +1,64 @@
+===============================================
+         INVENTORY SYSTEM TEST ACCOUNTS
+===============================================
+
+REAL USER ACCOUNT (can log in):
+----------------------------------------------
+Email:    batman@gmail.com
+Password: [your existing password]
+Name:     Bruce Wayne
+Role:     Admin
+Dept:     Administration
+
+----------------------------------------------
+
+NOTE: The following employees are DUMMY DATA 
+records only - they do NOT have login credentials.
+They exist for testing transaction history,
+warehouse management, and employee assignments.
+
+DUMMY EMPLOYEES (no login - data only):
+----------------------------------------------
+1. Diana Prince
+   Role: Manager
+   Dept: Management
+   Assigned: East Coast Fulfillment (Manager)
+
+2. Clark Kent
+   Role: Warehouse Staff
+   Dept: Operations
+
+3. Barry Allen
+   Role: Warehouse Staff
+   Dept: Operations
+
+4. Arthur Curry
+   Role: Procurement Officer
+   Dept: Procurement
+
+5. Victor Stone
+   Role: Warehouse Staff
+   Dept: Operations
+
+6. Hal Jordan
+   Role: Procurement Officer
+   Dept: Procurement
+
+7. Selina Kyle
+   Role: Manager
+   Dept: Management
+   Assigned: West Coast Logistics (Manager)
+
+8. Oliver Queen
+   Role: Warehouse Staff
+   Dept: Operations
+   Assigned: Southeast Regional (Manager)
+
+----------------------------------------------
+
+To create actual login accounts for testing,
+sign up through the app with new email/password
+combinations. Each new signup automatically
+gets a warehouse_staff role by default.
+
+===============================================
