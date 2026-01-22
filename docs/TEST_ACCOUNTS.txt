@@ -2,63 +2,66 @@
          INVENTORY SYSTEM TEST ACCOUNTS
 ===============================================
 
-REAL USER ACCOUNT (can log in):
-----------------------------------------------
-Email:    batman@gmail.com
-Password: [your existing password]
-Name:     Bruce Wayne
-Role:     Admin
-Dept:     Administration
+All accounts below are REAL user accounts with 
+login credentials. They were created via signup.
+
+PASSWORD FOR ALL ACCOUNTS: Test123!
 
 ----------------------------------------------
-
-NOTE: The following employees are DUMMY DATA 
-records only - they do NOT have login credentials.
-They exist for testing transaction history,
-warehouse management, and employee assignments.
-
-DUMMY EMPLOYEES (no login - data only):
-----------------------------------------------
-1. Diana Prince
-   Role: Manager
-   Dept: Management
-   Assigned: East Coast Fulfillment (Manager)
-
-2. Clark Kent
-   Role: Warehouse Staff
-   Dept: Operations
-
-3. Barry Allen
-   Role: Warehouse Staff
-   Dept: Operations
-
-4. Arthur Curry
-   Role: Procurement Officer
-   Dept: Procurement
-
-5. Victor Stone
-   Role: Warehouse Staff
-   Dept: Operations
-
-6. Hal Jordan
-   Role: Procurement Officer
-   Dept: Procurement
-
-7. Selina Kyle
-   Role: Manager
-   Dept: Management
-   Assigned: West Coast Logistics (Manager)
-
-8. Oliver Queen
-   Role: Warehouse Staff
-   Dept: Operations
-   Assigned: Southeast Regional (Manager)
-
+ACCOUNTS:
 ----------------------------------------------
 
-To create actual login accounts for testing,
-sign up through the app with new email/password
-combinations. Each new signup automatically
-gets a warehouse_staff role by default.
+1. Bruce Wayne (Admin)
+   Email:    batman@gmail.com
+   Role:     Admin
+   Dept:     Administration
+
+2. Diana Prince (Manager)
+   Email:    diana@example.com
+   Role:     Manager
+   Dept:     Management
+
+3. Clark Kent (Warehouse Staff)
+   Email:    clark@example.com
+   Role:     Warehouse Staff
+   Dept:     Operations
+
+4. Barry Allen (Warehouse Staff)
+   Email:    barry@example.com
+   Role:     Warehouse Staff
+   Dept:     Operations
+
+5. Arthur Curry (Procurement Officer)
+   Email:    arthur@example.com
+   Role:     Procurement Officer
+   Dept:     Procurement
+
+6. Victor Stone (Warehouse Staff)
+   Email:    victor@example.com
+   Role:     Warehouse Staff
+   Dept:     Operations
+
+7. Hal Jordan (Procurement Officer)
+   Email:    hal@example.com
+   Role:     Procurement Officer
+   Dept:     Procurement
+
+8. Selina Kyle (Manager)
+   Email:    selina@example.com
+   Role:     Manager
+   Dept:     Management
+
+9. Oliver Queen (Warehouse Staff)
+   Email:    oliver@example.com
+   Role:     Warehouse Staff
+   Dept:     Operations
+
+----------------------------------------------
+
+ROLE PERMISSIONS:
+- Admin: Full system access
+- Manager: Approve adjustments, update inventory
+- Procurement Officer: Create orders, upload bills
+- Warehouse Staff: Take/return items, view stock
 
 ===============================================
