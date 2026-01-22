@@ -22,6 +22,8 @@ interface Employee {
   f_name: string;
   l_name: string;
   user_id: string;
+  d_id: number | null;
+  role_id: number | null;
   department: { d_name: string } | null;
   role: { role_name: string } | null;
 }
@@ -70,6 +72,9 @@ export default function Admin() {
   const [newSupplier, setNewSupplier] = useState({ s_name: '', address: '', contact_email: '', contact_phone: '' });
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [selectedRole, setSelectedRole] = useState<string>('');
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [editDeptId, setEditDeptId] = useState<string>('');
+  const [editRoleId, setEditRoleId] = useState<string>('');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -193,6 +198,44 @@ export default function Admin() {
     refetchSuppliers();
   };
 
+  const deleteEmployee = async (emp: Employee) => {
+    if (emp.user_id === user?.id) {
+      return toast.error("You cannot delete yourself");
+    }
+    
+    // Delete user_roles first
+    await supabase.from('user_roles').delete().eq('user_id', emp.user_id);
+    
+    const { error } = await supabase.from('employees').delete().eq('e_id', emp.e_id);
+    if (error) return toast.error(error.message);
+    toast.success('Employee removed');
+    fetchEmployees();
+    fetchUserRoles();
+  };
+
+  const openEditDialog = (emp: Employee) => {
+    setEditingEmployee(emp);
+    setEditDeptId(emp.d_id?.toString() || '');
+    setEditRoleId(emp.role_id?.toString() || '');
+  };
+
+  const updateEmployeeDeptRole = async () => {
+    if (!editingEmployee) return;
+    
+    const { error } = await supabase
+      .from('employees')
+      .update({
+        d_id: editDeptId ? parseInt(editDeptId) : null,
+        role_id: editRoleId ? parseInt(editRoleId) : null,
+      })
+      .eq('e_id', editingEmployee.e_id);
+    
+    if (error) return toast.error(error.message);
+    toast.success('Employee updated');
+    setEditingEmployee(null);
+    fetchEmployees();
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -260,24 +303,89 @@ export default function Admin() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
-                      <TableHead>Email Name</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {employees.map((emp) => (
                       <TableRow key={emp.e_id}>
-                        <TableCell>{emp.f_name} {emp.l_name}</TableCell>
-                        <TableCell>{emp.e_name}</TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{emp.f_name} {emp.l_name}</p>
+                            <p className="text-xs text-muted-foreground">{emp.e_name}</p>
+                          </div>
+                        </TableCell>
                         <TableCell>{emp.department?.d_name || '-'}</TableCell>
                         <TableCell>{emp.role?.role_name || '-'}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(emp)}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => deleteEmployee(emp)}
+                              disabled={emp.user_id === user?.id}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
+
+            {/* Edit Employee Dialog */}
+            <Dialog open={!!editingEmployee} onOpenChange={(open) => !open && setEditingEmployee(null)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Employee: {editingEmployee?.f_name} {editingEmployee?.l_name}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Select value={editDeptId} onValueChange={setEditDeptId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">None</SelectItem>
+                        {departments.map((d) => (
+                          <SelectItem key={d.d_id} value={d.d_id.toString()}>
+                            {d.d_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select value={editRoleId} onValueChange={setEditRoleId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">None</SelectItem>
+                        {roles.map((r) => (
+                          <SelectItem key={r.role_id} value={r.role_id.toString()}>
+                            {r.role_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button onClick={updateEmployeeDeptRole} className="w-full">
+                    Save Changes
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* Roles Tab */}
