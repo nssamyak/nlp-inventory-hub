@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Terminal, Send, Loader2, ChevronRight } from 'lucide-react';
+import { MessageCircle, Send, Loader2, Sparkles, Package, ArrowRightLeft, ShoppingCart, Eye, HelpCircle, Trash2, Box, TruckIcon, ClipboardList } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -11,13 +11,28 @@ interface NLPConsoleProps {
   onCommandExecuted?: () => void;
 }
 
+const quickActions = [
+  { icon: Eye, label: 'View Products', command: 'Show all products', color: 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600' },
+  { icon: Box, label: 'Check Stock', command: 'Show stock levels', color: 'bg-green-500/10 hover:bg-green-500/20 text-green-600' },
+  { icon: ShoppingCart, label: 'Pending Orders', command: 'Show pending orders', color: 'bg-orange-500/10 hover:bg-orange-500/20 text-orange-600' },
+  { icon: ClipboardList, label: 'Transactions', command: 'Show recent transactions', color: 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-600' },
+  { icon: TruckIcon, label: 'Warehouses', command: 'Show warehouses', color: 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600' },
+];
+
+const suggestedCommands = [
+  { text: "Take 10 units of [product] from [warehouse]", category: "Stock Out" },
+  { text: "Add 20 more [product] to [warehouse]", category: "Stock In" },
+  { text: "Order 50 [product] from [supplier] to [warehouse]", category: "Order" },
+  { text: "Transfer 15 [product] from [warehouse A] to [warehouse B]", category: "Transfer" },
+];
+
 export function NLPConsole({ onCommandExecuted }: NLPConsoleProps) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ConsoleMessage[]>([
     {
       id: '1',
       type: 'system',
-      content: 'Welcome to Inventory Management System. Type your command or "help" for available commands.',
+      content: '👋 Welcome! I\'m your inventory assistant. Tell me what you need in plain English, or click a quick action below to get started.',
       timestamp: new Date(),
     }
   ]);
@@ -26,8 +41,9 @@ export function NLPConsole({ onCommandExecuted }: NLPConsoleProps) {
   const [pendingOrderId, setPendingOrderId] = useState<number | null>(null);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -57,20 +73,32 @@ export function NLPConsole({ onCommandExecuted }: NLPConsoleProps) {
     // Show help
     if (command.toLowerCase() === 'help') {
       addMessage('input', command);
-      addMessage('output', `Available commands:
-• Stock movements: "Take 10 units of [product] from [warehouse]"
-• Returns: "Return 5 units of [product] to [warehouse]"
-• Transfers: "Transfer 20 units of [product] from [warehouse A] to [warehouse B]"
-• Orders: "Order 100 units of [product] from [supplier]"
-• Status: "Update order #123 to received"
-• View data: "Show products", "Show warehouses", "Show orders", "Show stock", "Show transactions"
-• Add data: "Add product [name] at price [x]", "Add warehouse [name]", "Add supplier [name]"
+      addMessage('output', `🎯 **Here's what I can help you with:**
 
-Examples:
-• "Show me all products"
-• "Take 5 widgets from Main Warehouse"
-• "Order 50 units of Steel Bolts from ABC Supplies"
-• "Show pending orders"`);
+📦 **Stock Management**
+• "Take 10 units of Widget from Main Warehouse"
+• "Add 20 more Steel Bolts to East Warehouse"  
+• "Return 5 units of Gadget to Storage"
+
+🔄 **Transfers**
+• "Transfer 15 items from Warehouse A to Warehouse B"
+• "Move 30 units of Product X to Main Warehouse"
+
+🛒 **Orders**
+• "Order 100 units of Widget from ABC Supplies to Main Warehouse"
+• "Mark order #5 as received"
+• "Show pending orders"
+
+👀 **View Data**
+• "Show products" • "Show stock levels" • "Show warehouses"
+• "Show orders" • "Show transactions" • "Show suppliers"
+
+➕ **Add New Items**
+• "Add product Gadget Pro at price 299"
+• "Add warehouse North Storage"
+• "Add supplier Tech Corp"
+
+💡 **Tip:** Just type naturally! I understand commands like "I need to move some widgets to the main warehouse" too.`);
       return;
     }
 
@@ -78,7 +106,7 @@ Examples:
       setMessages([{
         id: Date.now().toString(),
         type: 'system',
-        content: 'Console cleared. Type your command or "help" for available commands.',
+        content: '✨ Chat cleared! What would you like to do?',
         timestamp: new Date(),
       }]);
       return;
@@ -141,114 +169,172 @@ Examples:
     setInput('');
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (commandHistory.length > 0) {
-        const newIndex = historyIndex < commandHistory.length - 1 ? historyIndex + 1 : historyIndex;
-        setHistoryIndex(newIndex);
-        setInput(commandHistory[commandHistory.length - 1 - newIndex]);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const newIndex = historyIndex - 1;
-        setHistoryIndex(newIndex);
-        setInput(commandHistory[commandHistory.length - 1 - newIndex]);
-      } else if (historyIndex === 0) {
-        setHistoryIndex(-1);
-        setInput('');
-      }
-    }
-  };
-
   const renderMessage = (msg: ConsoleMessage) => {
-    const typeStyles: Record<ConsoleMessage['type'], string> = {
-      input: 'text-console-command',
-      output: 'text-console-text',
-      error: 'text-console-error',
-      success: 'text-console-success',
-      warning: 'text-console-warning',
-      system: 'text-muted-foreground italic',
+    const typeConfig: Record<ConsoleMessage['type'], { bg: string; icon: string }> = {
+      input: { bg: 'bg-primary/10 ml-12', icon: '💬' },
+      output: { bg: 'bg-muted', icon: '📋' },
+      error: { bg: 'bg-destructive/10', icon: '❌' },
+      success: { bg: 'bg-green-500/10', icon: '✅' },
+      warning: { bg: 'bg-yellow-500/10', icon: '⚠️' },
+      system: { bg: 'bg-blue-500/10', icon: '🤖' },
     };
 
+    const config = typeConfig[msg.type];
+
     return (
-      <div key={msg.id} className="animate-fade-in">
-        {msg.type === 'input' && (
-          <div className="flex items-start gap-2 mb-1">
-            <ChevronRight className="w-4 h-4 text-console-prompt mt-0.5 flex-shrink-0" />
-            <span className={`${typeStyles[msg.type]} font-medium`}>{msg.content}</span>
-          </div>
-        )}
-        {msg.type !== 'input' && (
-          <div className={`ml-6 mb-3 ${typeStyles[msg.type]} whitespace-pre-wrap`}>
-            {msg.content}
+      <div key={msg.id} className={`rounded-lg p-3 mb-3 ${config.bg} animate-fade-in`}>
+        <div className="flex gap-2">
+          <span className="text-base">{config.icon}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
             {msg.data && msg.data.length > 0 && (
-              <div className="mt-3">
+              <div className="mt-3 overflow-x-auto">
                 <DataTable data={msg.data} />
               </div>
             )}
+            <p className="text-xs text-muted-foreground mt-1">
+              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
           </div>
-        )}
+        </div>
       </div>
     );
   };
 
+  const handleQuickAction = (command: string) => {
+    processCommand(command);
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion);
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
+
   return (
     <>
-      <div className="console-container flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col h-full overflow-hidden bg-card rounded-xl border shadow-sm">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border/30 bg-console/50">
-          <Terminal className="w-5 h-5 text-console-prompt" />
-          <span className="font-mono text-sm text-console-text font-medium">NLP Command Console</span>
-          <div className="flex-1" />
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-destructive/80" />
-            <div className="w-3 h-3 rounded-full bg-warning/80" />
-            <div className="w-3 h-3 rounded-full bg-success/80" />
+        <div className="flex items-center gap-3 px-4 py-3 border-b bg-muted/30">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <MessageCircle className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm">Inventory Assistant</h3>
+            <p className="text-xs text-muted-foreground">Ask me anything about your inventory</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMessages([{
+              id: Date.now().toString(),
+              type: 'system',
+              content: '✨ Chat cleared! What would you like to do?',
+              timestamp: new Date(),
+            }])}
+            className="h-8 w-8"
+            title="Clear chat"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="px-3 py-2 border-b bg-muted/20 overflow-x-auto">
+          <div className="flex gap-2">
+            {quickActions.map((action, idx) => (
+              <Button
+                key={idx}
+                variant="ghost"
+                size="sm"
+                onClick={() => handleQuickAction(action.command)}
+                className={`flex-shrink-0 gap-1.5 ${action.color}`}
+                disabled={isProcessing}
+              >
+                <action.icon className="w-3.5 h-3.5" />
+                <span className="text-xs">{action.label}</span>
+              </Button>
+            ))}
           </div>
         </div>
 
-        {/* Output */}
+        {/* Messages */}
         <div 
           ref={outputRef}
-          className="flex-1 overflow-y-auto p-4 font-mono text-sm console-output bg-console"
+          className="flex-1 overflow-y-auto p-4 space-y-1"
         >
           {messages.map(renderMessage)}
           {isProcessing && (
-            <div className="flex items-center gap-2 text-console-prompt animate-pulse">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Processing...</span>
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-muted animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">Processing your request...</span>
             </div>
           )}
         </div>
 
+        {/* Suggestions Panel */}
+        {showSuggestions && (
+          <div className="px-4 py-3 border-t bg-muted/30">
+            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> Example commands:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {suggestedCommands.map((cmd, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSuggestionClick(cmd.text)}
+                  className="text-xs px-2 py-1 rounded-full bg-background border hover:bg-muted transition-colors"
+                >
+                  <span className="text-muted-foreground">{cmd.category}:</span> {cmd.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Input */}
-        <form onSubmit={handleSubmit} className="border-t border-border/30 bg-console/80">
-          <div className="flex items-center gap-2 px-4 py-3">
-            <ChevronRight className="w-5 h-5 text-console-prompt flex-shrink-0" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Enter command... (type 'help' for available commands)"
-              className="console-input flex-1"
-              disabled={isProcessing}
-              autoFocus
-            />
+        <div className="border-t p-3 bg-background">
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowSuggestions(!showSuggestions)}
+              className="flex-shrink-0 h-10 w-10"
+              title="Show examples"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </Button>
+            <div className="flex-1 relative">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+                placeholder="Type what you need... (e.g., 'Show me all products' or 'Take 5 widgets from warehouse')"
+                className="w-full min-h-[40px] max-h-[120px] px-3 py-2 text-sm rounded-lg border bg-muted/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                rows={1}
+                disabled={isProcessing}
+              />
+            </div>
             <Button 
               type="submit" 
-              size="sm" 
-              variant="ghost"
+              size="icon"
               disabled={isProcessing || !input.trim()}
-              className="text-console-prompt hover:text-console-success hover:bg-console-success/10"
+              className="flex-shrink-0 h-10 w-10"
             >
               <Send className="w-4 h-4" />
             </Button>
-          </div>
-        </form>
+          </form>
+          <p className="text-xs text-center text-muted-foreground mt-2">
+            Press Enter to send • Type "help" for all commands
+          </p>
+        </div>
       </div>
 
       <BillUploadDialog 
@@ -257,7 +343,7 @@ Examples:
         orderId={pendingOrderId}
         onComplete={() => {
           setPendingOrderId(null);
-          addMessage('success', 'Bill uploaded successfully!');
+          addMessage('success', '🎉 Bill uploaded successfully!');
         }}
       />
     </>

@@ -29,7 +29,7 @@ VITE_SUPABASE_URL=<your-supabase-url>
 VITE_SUPABASE_PUBLISHABLE_KEY=<your-supabase-anon-key>
 VITE_SUPABASE_PROJECT_ID=<your-project-id>
 
-Note: If you cloned from Lovable, these may already be set.
+Note: If you cloned from Supabase, these may already be set.
 To get these values:
 1. Go to your Supabase project dashboard
 2. Navigate to Settings > API
@@ -37,7 +37,7 @@ To get these values:
 
 STEP 4: Database Setup
 -----------------------
-The database schema is already set up if using Lovable Cloud.
+The database schema is already set up if using Supabase Cloud.
 
 If setting up fresh Supabase:
 1. Create a new Supabase project
@@ -66,7 +66,7 @@ STEP 6: Create Your First Admin User
    SET role = 'admin' 
    WHERE user_id = '<your-user-id>';
 
-   Or use the Lovable Cloud interface to update the role.
+   Or use the Supabase Cloud interface to update the role.
 
 FEATURES
 --------
@@ -109,7 +109,7 @@ TROUBLESHOOTING
 
 3. NLP commands not working:
    - Ensure edge function is deployed
-   - Check edge function logs in Lovable Cloud
+   - Check edge function logs in Supabase Cloud
 
 SUPPORT
 -------

@@ -74,9 +74,9 @@ export function useAuth() {
     return { error };
   };
 
-  const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
+  const signUp = async (email: string, password: string, firstName: string, lastName: string, designation?: string, department?: string) => {
     const redirectUrl = `${window.location.origin}/`;
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -84,9 +84,30 @@ export function useAuth() {
         data: {
           first_name: firstName,
           last_name: lastName,
+          designation: designation || 'warehouse_staff',
+          department: department || 'warehouse',
         }
       }
     });
+
+    // If signup successful and we have a user, create user_role entry
+    if (!error && data.user) {
+      const roleMapping: Record<string, AppRole> = {
+        'admin': 'admin',
+        'manager': 'manager',
+        'warehouse_staff': 'warehouse_staff',
+        'procurement_officer': 'procurement_officer',
+      };
+      
+      const appRole = roleMapping[designation || 'warehouse_staff'] || 'warehouse_staff';
+      
+      // Insert user role (this may fail if RLS prevents it, but the trigger should handle it)
+      await supabase.from('user_roles').upsert({
+        user_id: data.user.id,
+        role: appRole,
+      }, { onConflict: 'user_id' });
+    }
+
     return { error };
   };
 
